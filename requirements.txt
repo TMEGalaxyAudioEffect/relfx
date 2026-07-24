@@ -1,0 +1,5 @@
+torch>=2.7,<2.8
+torchaudio>=2.7,<2.8
+torchlibrosa==0.1.0
+numpy>=1.24
+soundfile>=0.12

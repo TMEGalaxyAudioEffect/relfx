@@ -1,0 +1,21 @@
+RELEASE CANDIDATE - FIRST-PARTY LICENSE NOT YET GRANTED
+
+This directory is a pre-publication release candidate. The copyright owner has
+not yet approved a public license for first-party RelFx files. Until this file
+is replaced by an owner-approved license, no permission is granted to publish,
+redistribute, sublicense, or commercially use those first-party files.
+
+Third-party components remain under their respective licenses regardless of
+this notice. In particular, files identified in THIRD_PARTY_NOTICES.md as
+copied from or adapted from FxEncoder++ are subject to Creative Commons
+Attribution-NonCommercial 4.0. The retained license text is available at:
+
+  licenses/CC-BY-NC-4.0-FXENCODERPP.txt
+
+Before public release:
+
+1. Confirm the copyright owner and patent/publication approval.
+2. Select an owner-approved first-party source license compatible with all
+   derivative-code obligations.
+3. Replace this staging notice with the final license text.
+4. Retain THIRD_PARTY_NOTICES.md and all third-party license files.

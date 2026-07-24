@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relfx"
+version = "0.1.0rc1"
+description = "Research implementation of relative audio effects representations"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.7,<2.8",
+  "torchaudio>=2.7,<2.8",
+  "torchlibrosa==0.1.0",
+  "numpy>=1.24",
+  "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+train = [
+  "dasp-pytorch==0.0.1",
+  "torchcomp==0.2.1",
+  "auraloss==0.4.0",
+  "scipy>=1.10",
+  "numba>=0.60",
+  "pyloudnorm==0.2.0",
+  "tqdm>=4.65",
+  "PyYAML>=6.0",
+]
+dev = [
+  "relfx[train]",
+  "ruff>=0.12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"

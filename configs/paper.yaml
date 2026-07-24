@@ -1,0 +1,38 @@
+audio:
+  sample_rate: 44100
+  segment_seconds: 10.0
+  channels: 2
+frontend:
+  window_size: 2048
+  hop_size: 512
+  mel_bins: 64
+  fmin: 50
+  fmax: 18000
+model:
+  embedding_dim: 2048
+  projection_dim: 128
+  fusion: diff_gate
+  cross_attention_stages: [3, 5]
+  cross_attention_heads: 4
+  cross_attention_pool: 4
+  cross_attention_scale: 0.1
+training:
+  epochs: 200
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+  temperature: 0.15
+  triplet_margin: 0.3
+  triplet_weight: 0.5
+  parameter_regression_weight: 0.5
+  activation_prediction_weight: 0.3
+  cross_segment: true
+  shuffle_effect_order: true
+  dynamic_effect_probability: true
+ito:
+  effects: 7
+  continuous_parameters: 47
+  iterations: 200
+  restarts: 7
+  patience: 50
+  learning_rate: 0.01
+  learning_rate_verification_required: true
