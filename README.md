@@ -11,7 +11,8 @@ the ISMIR 2026 paper **"Beyond Dry References: Learning Relative Audio Effects
 Representations via Contrastive Distance Learning."**
 
 > This is a private review candidate. Source and model licensing still require
-> owner approval. The verified epoch-199 checkpoint is distributed separately
+> owner approval. The verified epoch-199 checkpoint is hosted separately in the
+> [RelFx Hugging Face model repository](https://huggingface.co/Meteoroad/relfx-ismir2026)
 > and is never stored in this source repository.
 
 ## Quick start
@@ -43,17 +44,31 @@ CPU inference is supported but is substantially slower.
 
 ### 2. Obtain the checkpoint
 
-Request access to the gated RelFx model repository and keep the downloaded
-checkpoint outside this Git checkout:
+During private review, model access is limited to approved collaborators. The
+public release will use manually reviewed access requests for non-commercial
+research. Authenticate with Hugging Face and download the verified checkpoint:
 
 ```bash
-export RELFX_CHECKPOINT_PATH=/absolute/path/to/relfx-ismir2026-epoch199.pt
+pip install -U huggingface_hub
+hf auth login
+
+export RELFX_WEIGHTS_DIR="${RELFX_WEIGHTS_DIR:-$HOME/.cache/relfx}"
+hf download Meteoroad/relfx-ismir2026 \
+  relfx-ismir2026-epoch199.pt \
+  --revision 03180273bed93c1c8438e994210defa8cb61a5da \
+  --local-dir "$RELFX_WEIGHTS_DIR"
+```
+
+Keep the checkpoint outside this Git checkout and point RelFx to the downloaded
+file:
+
+```bash
+export RELFX_CHECKPOINT_PATH="$RELFX_WEIGHTS_DIR/relfx-ismir2026-epoch199.pt"
 python scripts/verify_checkpoint.py "$RELFX_CHECKPOINT_PATH"
 ```
 
 The verifier checks the epoch, V6 architecture, model configuration, training
-switches, state dictionary, and SHA-256. The final Hugging Face URL and
-immutable model revision will be added after owner approval.
+switches, state dictionary, and SHA-256.
 
 ### 3. Extract an embedding
 
