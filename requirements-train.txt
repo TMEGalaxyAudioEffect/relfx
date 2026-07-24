@@ -1,9 +1,0 @@
--r requirements.txt
-dasp-pytorch==0.0.1
-torchcomp==0.2.1
-auraloss==0.4.0
-scipy>=1.10
-numba>=0.60
-pyloudnorm==0.2.0
-tqdm>=4.65
-PyYAML>=6.0

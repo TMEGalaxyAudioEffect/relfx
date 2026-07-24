@@ -10,13 +10,9 @@ inference-time optimization (ITO) evaluation. It does not contain training
 audio, company SDKs, internal effect assets, later production models, or
 development checkpoints.
 
-> Release status: source and model licensing still require owner approval. The
-> epoch-199 paper checkpoint candidate has passed metadata, history-log, GPU
-> inference, and ITO smoke checks, but remains outside this source repository.
-> Do not publish this candidate until every blocking item in
-> [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) is complete.
-> Current technical checks are recorded in
-> [VALIDATION_REPORT.md](VALIDATION_REPORT.md).
+> Release status: this is a private review candidate. Source and model
+> licensing still require owner approval. The verified epoch-199 paper
+> checkpoint remains outside this source repository.
 
 ## Repository layout
 
@@ -25,11 +21,10 @@ development checkpoints.
 ├── src/relfx/                 # model, training, data, effects, and ITO code
 ├── scripts/embed.py           # primary inference entry point
 ├── scripts/run_demo.sh        # concise user-audio launcher
-├── demo/                      # instructions for user-supplied audio
 ├── configs/paper.yaml         # sanitized paper configuration
-├── requirements.txt           # inference environment
-├── requirements-train.txt     # inference plus training/evaluation packages
-├── MODEL_CARD.md              # gated-weight model-card template
+├── docs/data-format.md        # public training-data conventions
+├── tests/                     # focused release tests
+├── pyproject.toml             # package metadata and dependency groups
 └── THIRD_PARTY_NOTICES.md
 ```
 
@@ -38,17 +33,17 @@ development checkpoints.
 ### 1. Create an environment
 
 Install the PyTorch build appropriate for the target CUDA runtime first, then
-install the inference environment:
+install RelFx:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
 pip install -e .
 ```
 
-Use `requirements-train.txt` instead when training or running ITO evaluation.
-The effect-chain dependencies and FxEncoder++ attribution are documented in
+Use `pip install -e ".[train]"` when training or running ITO evaluation, or
+`pip install -e ".[dev]"` for the complete development environment. The
+effect-chain dependencies and FxEncoder++ attribution are documented in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ### 2. Obtain model assets
@@ -79,12 +74,16 @@ bash scripts/run_demo.sh \
 For direct control, call `scripts/embed.py` with `--checkpoint`, `--reference`,
 `--processed`, and `--output`.
 
+The two files do not need to contain identical musical content. RelFx
+resamples them to 44.1 kHz, converts them to stereo, and pads or crops the
+first ten seconds.
+
 ## Train
 
 Install the training environment:
 
 ```bash
-pip install -r requirements-train.txt
+pip install -e ".[train]"
 ```
 
 Pass one or more audio roots explicitly:

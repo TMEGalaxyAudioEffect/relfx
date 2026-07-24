@@ -1,2 +1,0 @@
--r requirements-train.txt
-ruff>=0.12
