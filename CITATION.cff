@@ -5,6 +5,27 @@ type: software
 version: 0.1.0-rc1
 date-released: 2026-07-23
 authors:
-  - name: "RelFx authors"
-repository-code: "PENDING"
+  - family-names: "Liu"
+    given-names: "Xinlu"
+  - family-names: "Lin"
+    given-names: "Huibin"
+  - family-names: "Wei"
+    given-names: "Weixing"
+  - family-names: "Yan"
+    given-names: "Zhenhai"
+repository-code: "https://github.com/meteroad/relfx-ismir2026-release"
 license: "LicenseRef-Pending"
+preferred-citation:
+  type: conference-paper
+  title: "Beyond Dry References: Learning Relative Audio Effects Representations via Contrastive Distance Learning"
+  authors:
+    - family-names: "Liu"
+      given-names: "Xinlu"
+    - family-names: "Lin"
+      given-names: "Huibin"
+    - family-names: "Wei"
+      given-names: "Weixing"
+    - family-names: "Yan"
+      given-names: "Zhenhai"
+  collection-title: "Proceedings of the 27th International Society for Music Information Retrieval Conference (ISMIR)"
+  year: 2026

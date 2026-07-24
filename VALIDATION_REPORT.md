@@ -30,9 +30,9 @@ The epoch and all stored validation metrics exactly match the historical
 The final source state produced the following wheel:
 
 - File: `relfx-0.1.0rc1-py3-none-any.whl`
-- Size: `81,668` bytes
+- Size: `81,840` bytes
 - SHA-256:
-  `a4b5151f66a68aae02a560bf98f13ef0a07b2f39fcd5e218460cd925ff2c1435`
+  `800271fc78c4fc04e8d77c7d89a7a3a867ee29d36304c852805063711a1775d4`
 
 The wheel was installed into a temporary target and imported outside the
 source tree. The declared runtime was Python 3.10, PyTorch 2.7.1+cu118, and

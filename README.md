@@ -176,5 +176,17 @@ components remain subject to CC BY-NC 4.0; see
 
 ## Citation
 
-Citation metadata will be finalized after the proceedings entry is available.
-See [CITATION.cff](CITATION.cff).
+If you use RelFx in your research, please cite:
+
+```bibtex
+@inproceedings{liu2026beyond,
+  title     = {Beyond Dry References: Learning Relative Audio Effects
+               Representations via Contrastive Distance Learning},
+  author    = {Liu, Xinlu and Lin, Huibin and Wei, Weixing and Yan, Zhenhai},
+  booktitle = {Proceedings of the 27th International Society for Music
+               Information Retrieval Conference (ISMIR)},
+  year      = {2026}
+}
+```
+
+The DOI and page range will be added after the proceedings entry is available.
