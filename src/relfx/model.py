@@ -1,8 +1,8 @@
 """RelFx dual-branch cross-attention encoder.
 
-The Cnn14-style frontend and convolutional blocks are adapted from
-FxEncoder++ at https://github.com/SonyResearch/Fx-Encoder_PlusPlus.
-See THIRD_PARTY_NOTICES.md and the retained CC BY-NC 4.0 license.
+The Cnn14-style frontend and convolutional blocks trace to PANNs and were
+adapted for RelFx through FxEncoder++.
+See THIRD_PARTY_NOTICES.md and the retained third-party licenses.
 
 核心改进（对比 V3）:
     V3: 4 通道拼接 → 单一 CNN → 严重依赖逐帧差分

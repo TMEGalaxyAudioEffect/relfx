@@ -14,7 +14,7 @@ authors:
   - family-names: "Yan"
     given-names: "Zhenhai"
 repository-code: "https://github.com/meteroad/relfx-ismir2026-release"
-license: "LicenseRef-Pending"
+license: "MIT"
 preferred-citation:
   type: conference-paper
   title: "Beyond Dry References: Learning Relative Audio Effects Representations via Contrastive Distance Learning"
