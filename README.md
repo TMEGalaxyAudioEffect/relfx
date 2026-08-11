@@ -13,7 +13,7 @@ Representations via Contrastive Distance Learning."**
 > First-party RelFx source code is released under the MIT License; third-party
 > components remain under their respective licenses. The verified MoisesDB-only
 > checkpoint is hosted separately in the
-> [RelFx Hugging Face model repository](https://huggingface.co/Meteoroad/relfx-ismir2026)
+> [RelFx Hugging Face model repository](https://huggingface.co/TMEGalaxyAudioEffect/relfx-ismir2026)
 > under CC BY-NC-SA 4.0 and is never stored in this source repository.
 
 ## Quick start
@@ -24,7 +24,7 @@ The release was tested with Python 3.10, PyTorch 2.7.1+cu118, Torchaudio
 2.7.1+cu118, and an NVIDIA Tesla T4.
 
 ```bash
-git clone https://github.com/meteroad/relfx-ismir2026-release.git
+git clone https://github.com/TMEGalaxyAudioEffect/relfx-ismir2026-release.git
 cd relfx-ismir2026-release
 
 python -m venv .venv
@@ -53,7 +53,7 @@ pip install -U huggingface_hub
 hf auth login
 
 export RELFX_WEIGHTS_DIR="${RELFX_WEIGHTS_DIR:-$HOME/.cache/relfx}"
-hf download Meteoroad/relfx-ismir2026 \
+hf download TMEGalaxyAudioEffect/relfx-ismir2026 \
   model.safetensors \
   --local-dir "$RELFX_WEIGHTS_DIR"
 ```
