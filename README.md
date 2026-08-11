@@ -45,12 +45,11 @@ CPU inference is supported but is substantially slower.
 
 ### 2. Obtain the checkpoint
 
-Model access is gated and requests are reviewed manually. Authenticate with
-Hugging Face and download the verified checkpoint:
+The checkpoint is publicly available and does not require a Hugging Face
+account. Download the verified artifact with the Hugging Face CLI:
 
 ```bash
 pip install -U huggingface_hub
-hf auth login
 
 export RELFX_WEIGHTS_DIR="${RELFX_WEIGHTS_DIR:-$HOME/.cache/relfx}"
 hf download TMEGalaxyAudioEffect/relfx-ismir2026 \

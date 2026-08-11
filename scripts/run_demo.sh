@@ -6,7 +6,7 @@ if [[ $# -lt 2 || $# -gt 3 ]]; then
   exit 2
 fi
 
-: "${RELFX_CHECKPOINT_PATH:?Set RELFX_CHECKPOINT_PATH to an approved checkpoint}"
+: "${RELFX_CHECKPOINT_PATH:?Set RELFX_CHECKPOINT_PATH to a verified checkpoint}"
 
 reference_audio="$1"
 processed_audio="$2"
