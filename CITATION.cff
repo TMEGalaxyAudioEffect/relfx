@@ -13,7 +13,8 @@ authors:
     given-names: "Weixing"
   - family-names: "Yan"
     given-names: "Zhenhai"
-repository-code: "https://github.com/TMEGalaxyAudioEffect/relfx-ismir2026-release"
+repository-code: "https://github.com/TMEGalaxyAudioEffect/relfx"
+url: "https://relative-fx.github.io/"
 license: "MIT"
 preferred-citation:
   type: conference-paper
@@ -29,3 +30,4 @@ preferred-citation:
       given-names: "Zhenhai"
   collection-title: "Proceedings of the 27th International Society for Music Information Retrieval Conference (ISMIR)"
   year: 2026
+  url: "https://arxiv.org/abs/2608.10573"

@@ -1,5 +1,9 @@
 # RelFx: Learning Relative Audio Effects Representations
 
+**[Project page](https://relative-fx.github.io/)** ·
+**[Paper (arXiv)](https://arxiv.org/abs/2608.10573)** ·
+**[Model checkpoint](https://huggingface.co/TMEGalaxyAudioEffect/relfx-ismir2026)**
+
 RelFx encodes the audio-effects transformation between two audio clips. Given
 a reference clip and a processed clip, it produces a normalized
 2048-dimensional embedding that describes how their effects differ, even when
@@ -24,8 +28,8 @@ The release was tested with Python 3.10, PyTorch 2.7.1+cu118, Torchaudio
 2.7.1+cu118, and an NVIDIA Tesla T4.
 
 ```bash
-git clone https://github.com/TMEGalaxyAudioEffect/relfx-ismir2026-release.git
-cd relfx-ismir2026-release
+git clone https://github.com/TMEGalaxyAudioEffect/relfx.git
+cd relfx
 
 python -m venv .venv
 source .venv/bin/activate
