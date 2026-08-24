@@ -7,7 +7,7 @@ import argparse
 
 import torch
 
-from relfx.model import create_model
+from relfx.model import MODEL_VARIANTS, create_model
 
 
 def main() -> None:
@@ -16,9 +16,14 @@ def main() -> None:
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
     parser.add_argument("--seconds", type=float, default=1.0)
+    parser.add_argument(
+        "--model-variant",
+        choices=MODEL_VARIANTS,
+        default="base",
+    )
     args = parser.parse_args()
 
-    model = create_model().to(args.device).eval()
+    model = create_model(model_variant=args.model_variant).to(args.device).eval()
     samples = int(44_100 * args.seconds)
     reference = torch.randn(1, 2, samples, device=args.device) * 0.01
     processed = torch.randn(1, 2, samples, device=args.device) * 0.01
@@ -30,6 +35,7 @@ def main() -> None:
     assert torch.equal(output["embedding"], output["z"])
     print(
         f"Smoke test passed on {args.device}: "
+        f"variant={args.model_variant}, "
         f"fusion={tuple(output['fusion'].shape)}, "
         f"embedding={tuple(output['embedding'].shape)}"
     )

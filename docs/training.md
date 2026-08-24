@@ -41,6 +41,37 @@ The public paper configuration uses:
 The complete sanitized configuration is in
 [`configs/paper.yaml`](../configs/paper.yaml).
 
+## Bidirectional variant
+
+The main release checkpoint uses the Base model. To train the separate
+bidirectional-compatible paper architecture, select it explicitly:
+
+```bash
+torchrun --nproc_per_node=4 -m relfx.train \
+  --audio-dir /path/to/source-a \
+  --audio-dir /path/to/source-b \
+  --model-variant bidirectional \
+  --bidirectional-flip-ratio 0.5
+```
+
+This selects the architecture used for the paper's bidirectional experiment:
+a gate conditioned on the sum of the branch embeddings, gated difference-only
+fusion, and a Tanh projection. One mask swaps the input order for both positive
+examples and the negative example in each triplet. For the auxiliary
+parameter-regression objective, the strictly reversed fusion is negated back
+to the forward direction before the regression head.
+
+Only the fusion operation is mathematically guaranteed to be antisymmetric.
+The projection Linear layers use learned biases, so antisymmetry of the final
+L2-normalized representation is an empirical property. No checkpoint for this
+variant is included in the current release.
+
+The untrained architecture can be checked independently of any checkpoint:
+
+```bash
+python scripts/smoke_test.py --model-variant bidirectional --device cpu
+```
+
 ## Single-batch validation
 
 Run one complete training and validation step without writing checkpoints:

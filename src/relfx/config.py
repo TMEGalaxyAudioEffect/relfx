@@ -88,13 +88,15 @@ LD_EVAL_CONFIG = {
 
 CROSS_SEGMENT = True
 
-# The paper checkpoint predates the later bidirectional-training experiments.
+# The public checkpoint is the Base variant. The separately trained paper
+# variant uses these defaults when --model-variant bidirectional is selected.
 BIDIRECTIONAL_CONFIG = {
     "enabled": False,
     "flip_ratio": 0.5,
 }
 
 MODEL_CONFIG = {
+    "model_variant": "base",
     "fusion_type": "diff_gate",
     "cross_attn_stages": [3, 5],
     "cross_attn_heads": 4,

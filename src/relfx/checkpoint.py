@@ -16,6 +16,17 @@ from .model import create_model
 RELFX_METADATA_KEY = "relfx_metadata"
 
 
+def resolve_model_variant(metadata: dict[str, Any]) -> str:
+    """Resolve the explicit release variant, including original V8 metadata."""
+    model_config = metadata.get("model_config", {})
+    explicit_variant = model_config.get("model_variant")
+    if explicit_variant is not None:
+        return explicit_variant
+    if metadata.get("version") == "v8":
+        return "bidirectional"
+    return "base"
+
+
 def load_safetensors_artifact(
     checkpoint_path: str | Path,
 ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
@@ -50,11 +61,12 @@ def load_model(
     *,
     device: str | torch.device = "cpu",
 ) -> tuple[torch.nn.Module, dict[str, Any]]:
-    """Load a public RelFx V6 artifact and return the model and metadata."""
+    """Load a RelFx Safetensors artifact and return the model and metadata."""
     state_dict, metadata = load_safetensors_artifact(checkpoint_path)
     model_config = metadata.get("model_config", {})
     model = create_model(
         fusion_type=model_config.get("fusion_type", "diff_gate"),
+        model_variant=resolve_model_variant(metadata),
         cross_attn_stages=model_config.get("cross_attn_stages", [3, 5]),
         cross_attn_heads=model_config.get("cross_attn_heads", 4),
         cross_attn_pool=model_config.get("cross_attn_pool", 4),

@@ -36,7 +36,6 @@ import json
 from datetime import datetime
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 from torch.cuda.amp import GradScaler, autocast
 import torch.distributed as dist
@@ -47,8 +46,9 @@ from tqdm import tqdm
 
 from . import config as cfg
 from .dataset import AudioSegmentDataset, FxContrastiveCollator
-from .model import create_model
+from .model import MODEL_VARIANTS, create_model
 from .loss import CombinedLoss
+from .bidirectional import orient_fusion_for_regression, swap_ordered_pairs
 from .fx_chain.fx_aug import Random_FX_Chain
 
 SAMPLE_RATE = cfg.SAMPLE_RATE
@@ -64,8 +64,6 @@ CROSS_SEGMENT = cfg.CROSS_SEGMENT
 DYNAMIC_FX_PROB_CONFIG = cfg.DYNAMIC_FX_PROB_CONFIG
 BIDIRECTIONAL_CONFIG = getattr(cfg, 'BIDIRECTIONAL_CONFIG', {"enabled": False})
 ensure_dirs = cfg.ensure_dirs
-
-from .fx_chain.constants import ALL_PROCESSORS
 
 
 # ===================== DDP 工具函数 =====================
@@ -305,7 +303,7 @@ def update_fx_probabilities(fx_chain, collator, per_fx_losses, old_probs,
 def train_one_epoch(
     model, dataloader, criterion, optimizer, scaler,
     epoch, device, fx_chain, use_amp=False, grad_accum_steps=1,
-    cross_segment=False, max_batches=None,
+    cross_segment=False, max_batches=None, bidirectional_config=None,
 ):
     """
     训练一个 epoch — V4 改动：
@@ -374,26 +372,23 @@ def train_one_epoch(
         # 需要分别对三组做 forward: (a, proc_a), (b, proc_b), (a, proc_a_diff)
         B = audio_a.size(0)
 
-        # ★ V6: 双向训练 — 随机翻转一部分样本的输入顺序
-        #   正向: model(dry, wet)  → 学习 "加了什么效果"
-        #   反向: model(wet, dry)  → 学习 "去掉了什么效果"
-        #   关键: 正样本对 (a, b) 和负样本 (a, diff) 必须使用相同的翻转方向
-        bidir_cfg = BIDIRECTIONAL_CONFIG
+        # Bidirectional training swaps all members of a triplet with one mask.
+        # Antisymmetric fusion then reverses the relation direction directly.
+        bidir_cfg = bidirectional_config or {"enabled": False}
         if bidir_cfg.get("enabled", False):
             flip_ratio = bidir_cfg.get("flip_ratio", 0.5)
             flip_mask = torch.rand(B, device=audio_a.device) < flip_ratio  # (B,) bool
 
             if flip_mask.any():
-                # 构造 orig / proc，翻转的样本交换 dry ↔ wet
-                # 正样本 a: orig=audio_a, proc=processed_a
-                orig_a = torch.where(flip_mask[:, None, None], processed_a, audio_a)
-                wet_a  = torch.where(flip_mask[:, None, None], audio_a, processed_a)
-                # 正样本 b: orig=audio_b, proc=processed_b
-                orig_b = torch.where(flip_mask[:, None, None], processed_b, audio_b)
-                wet_b  = torch.where(flip_mask[:, None, None], audio_b, processed_b)
-                # 负样本: orig=audio_a, proc=processed_a_diff (同样翻转方向)
-                orig_a_diff = torch.where(flip_mask[:, None, None], processed_a_diff, audio_a)
-                wet_a_diff  = torch.where(flip_mask[:, None, None], audio_a, processed_a_diff)
+                orig_a, wet_a = swap_ordered_pairs(
+                    audio_a, processed_a, flip_mask
+                )
+                orig_b, wet_b = swap_ordered_pairs(
+                    audio_b, processed_b, flip_mask
+                )
+                orig_a_diff, wet_a_diff = swap_ordered_pairs(
+                    audio_a, processed_a_diff, flip_mask
+                )
             else:
                 orig_a, wet_a = audio_a, processed_a
                 orig_b, wet_b = audio_b, processed_b
@@ -415,10 +410,15 @@ def train_one_epoch(
                 z_diff = out_all['z'][2*B:]
 
                 fusion_a = out_all['fusion'][:B]
+                fusion_for_regression = fusion_a
+                if bidir_cfg.get("enabled", False) and flip_mask.any():
+                    fusion_for_regression = orient_fusion_for_regression(
+                        fusion_a, flip_mask
+                    )
 
                 loss, loss_dict = criterion(
                     z_a, z_b, z_diff,
-                    fusion_a=fusion_a,
+                    fusion_a=fusion_for_regression,
                     params_shared=nn_param_shared,
                     activate_shared=activate_shared,
                     params_diff=nn_param_diff,
@@ -434,10 +434,15 @@ def train_one_epoch(
             z_diff = out_all['z'][2*B:]
 
             fusion_a = out_all['fusion'][:B]
+            fusion_for_regression = fusion_a
+            if bidir_cfg.get("enabled", False) and flip_mask.any():
+                fusion_for_regression = orient_fusion_for_regression(
+                    fusion_a, flip_mask
+                )
 
             loss, loss_dict = criterion(
                 z_a, z_b, z_diff,
-                fusion_a=fusion_a,
+                fusion_a=fusion_for_regression,
                 params_shared=nn_param_shared,
                 activate_shared=activate_shared,
                 params_diff=nn_param_diff,
@@ -719,7 +724,11 @@ def evaluate_ld_regression(model, criterion, fx_chain, device, triplets_dir, dat
     return all_results
 
 
-def save_checkpoint(model, optimizer, criterion, epoch, metrics, save_path, switches, cross_segment=False, model_config=None, fx_probs=None):
+def save_checkpoint(
+    model, optimizer, criterion, epoch, metrics, save_path, switches,
+    cross_segment=False, model_config=None, fx_probs=None,
+    bidirectional_config=None,
+):
     """保存 checkpoint"""
     if not is_main_process():
         return
@@ -727,6 +736,11 @@ def save_checkpoint(model, optimizer, criterion, epoch, metrics, save_path, swit
     model_state = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
     criterion_state = criterion.module.state_dict() if hasattr(criterion, 'module') else criterion.state_dict()
 
+    checkpoint_version = (
+        'v8'
+        if (model_config or {}).get('model_variant') == 'bidirectional'
+        else 'v6'
+    )
     torch.save({
         'epoch': epoch,
         'model_state_dict': model_state,
@@ -736,8 +750,9 @@ def save_checkpoint(model, optimizer, criterion, epoch, metrics, save_path, swit
         'switches': switches,
         'cross_segment': cross_segment,
         'model_config': model_config,
+        'bidirectional_config': bidirectional_config,
         'fx_probs': fx_probs,
-        'version': 'v6',
+        'version': checkpoint_version,
     }, save_path)
     logging.info(f"Checkpoint saved: {save_path}")
 
@@ -803,9 +818,27 @@ def main():
 
     # ======== V4: 模型配置 ========
     parser.add_argument(
+        "--model-variant",
+        choices=MODEL_VARIANTS,
+        default=MODEL_CONFIG.get("model_variant", "base"),
+        help=(
+            "Paper model variant. 'bidirectional' enables antisymmetric "
+            "Diff-Gate, Tanh projection, and paired input-order swaps."
+        ),
+    )
+    parser.add_argument(
         "--fusion-type", type=str, default=MODEL_CONFIG["fusion_type"],
         choices=["diff", "concat_mlp", "gate", "diff_gate"],
         help="融合策略",
+    )
+    parser.add_argument(
+        "--bidirectional-flip-ratio",
+        type=float,
+        default=BIDIRECTIONAL_CONFIG.get("flip_ratio", 0.5),
+        help=(
+            "Fraction of each batch whose ordered pairs are swapped when "
+            "--model-variant bidirectional is selected."
+        ),
     )
     parser.add_argument(
         "--cross-attn-stages", nargs="*", type=int,
@@ -840,6 +873,10 @@ def main():
         value = getattr(args, name)
         if value is not None and value < 1:
             parser.error(f"--{name.replace('_', '-')} must be at least 1")
+    if not 0.0 <= args.bidirectional_flip_ratio <= 1.0:
+        parser.error("--bidirectional-flip-ratio must be between 0 and 1")
+    if args.model_variant == "bidirectional" and args.fusion_type != "diff_gate":
+        parser.error("--model-variant bidirectional requires --fusion-type diff_gate")
     audio_dirs = args.audio_dir or cfg.AUDIO_DIRS
     if not audio_dirs:
         parser.error(
@@ -868,11 +905,16 @@ def main():
 
     # 模型配置
     model_config = MODEL_CONFIG.copy()
+    model_config["model_variant"] = args.model_variant
     model_config["fusion_type"] = args.fusion_type
     if args.no_cross_attn:
         model_config["cross_attn_stages"] = []
     else:
         model_config["cross_attn_stages"] = args.cross_attn_stages
+
+    bidirectional_config = BIDIRECTIONAL_CONFIG.copy()
+    bidirectional_config["enabled"] = args.model_variant == "bidirectional"
+    bidirectional_config["flip_ratio"] = args.bidirectional_flip_ratio
 
     # ===================== DDP 初始化 =====================
     setup_ddp()
@@ -888,7 +930,7 @@ def main():
     # ===================== 初始化 =====================
     ensure_dirs()
     os.makedirs(args.checkpoint_dir, exist_ok=True)
-    log_file = setup_logging(LOG_DIR, rank=rank)
+    setup_logging(LOG_DIR, rank=rank)
 
     effective_batch = args.batch_size * world_size * args.grad_accum_steps
 
@@ -902,7 +944,8 @@ def main():
     logging.info(f"LR: {args.lr}, Temperature: {args.temperature}")
     logging.info(f"Warmup epochs: {args.warmup_epochs}")
     logging.info(f"Cross-segment: {'✅ ON' if cross_segment else '❌ OFF'}")
-    logging.info(f"Model: DualBranchFxEncoder")
+    logging.info("Model: DualBranchFxEncoder")
+    logging.info(f"  Variant: {model_config['model_variant']}")
     logging.info(f"  Fusion: {model_config['fusion_type']}")
     logging.info(f"  CrossAttn stages: {model_config['cross_attn_stages']}")
 
@@ -917,10 +960,10 @@ def main():
         logging.info(f"  Warmup: {dyn_fx_config['warmup_epochs']} epochs")
 
     # V6: 双向训练配置
-    bidir_enabled = BIDIRECTIONAL_CONFIG.get("enabled", False)
+    bidir_enabled = bidirectional_config.get("enabled", False)
     logging.info(f"Bidirectional: {'✅ ON' if bidir_enabled else '❌ OFF'}")
     if bidir_enabled:
-        logging.info(f"  Flip ratio: {BIDIRECTIONAL_CONFIG['flip_ratio']}")
+        logging.info(f"  Flip ratio: {bidirectional_config['flip_ratio']}")
 
     # 打印开关状态
     logging.info("\n" + "=" * 70)
@@ -1006,6 +1049,7 @@ def main():
         embed_dim=TRAIN_CONFIG["embed_dim"],
         proj_dim=args.proj_dim,
         fusion_type=model_config["fusion_type"],
+        model_variant=model_config["model_variant"],
         cross_attn_stages=model_config["cross_attn_stages"],
         cross_attn_heads=model_config.get("cross_attn_heads", 4),
         cross_attn_pool=model_config.get("cross_attn_pool", 4),
@@ -1125,6 +1169,7 @@ def main():
             grad_accum_steps=args.grad_accum_steps,
             cross_segment=cross_segment,
             max_batches=args.max_train_batches,
+            bidirectional_config=bidirectional_config,
         )
 
         # 学习率调度
@@ -1161,6 +1206,7 @@ def main():
                         switches, cross_segment=cross_segment,
                         model_config=model_config,
                         fx_probs=current_fx_probs,
+                        bidirectional_config=bidirectional_config,
                     )
 
         # ===================== Ld 回归评估 (三元组数据) =====================
@@ -1178,7 +1224,7 @@ def main():
             val_criterion = criterion_module
 
             logging.info(f"\n  [Ld] Evaluating regression Ld at epoch {epoch+1}...")
-            ld_results = evaluate_ld_regression(
+            evaluate_ld_regression(
                 val_model, val_criterion, fx_chain, device,
                 triplets_dir=triplets_path, dataset=ld_dataset,
             )
@@ -1227,6 +1273,7 @@ def main():
                 switches, cross_segment=cross_segment,
                 model_config=model_config,
                 fx_probs=current_fx_probs,
+                bidirectional_config=bidirectional_config,
             )
 
         if is_dist():
@@ -1240,6 +1287,7 @@ def main():
             switches, cross_segment=cross_segment,
             model_config=model_config,
             fx_probs=current_fx_probs,
+            bidirectional_config=bidirectional_config,
         )
 
     if is_main_process():

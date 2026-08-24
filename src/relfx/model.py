@@ -17,7 +17,8 @@ See THIRD_PARTY_NOTICES.md and the retained third-party licenses.
     │                                                                 │
     │   分支投影: feat → fc_embed → emb_dry, emb_wet                 │
     │   融合: e_fx = Fuse(emb_dry, emb_wet)                          │
-    │       可选策略: "diff" | "concat_mlp" | "cross_attn" | "gate"  │
+    │       Base: concatenation gate + differential/absolute terms   │
+    │       Bidirectional: symmetric gate + differential term only   │
     │                                                                 │
     │   e_fx (2048-d) → projection → z (128-d)                       │
     │                                                                 │
@@ -32,13 +33,27 @@ See THIRD_PARTY_NOTICES.md and the retained third-party licenses.
     - forward(original, processed)["embedding"] → normalized z (B, 128)
     - forward(original, processed)["fusion"] → e_fx (B, 2048)
     - get_embedding(original, processed) → normalized z (B, 128)
+
+模型变体:
+    - "base": paper Eq. (4), standard Diff-Gate + ReLU projection
+    - "bidirectional": paper Eqs. (6)-(7), antisymmetric fusion + Tanh
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from torchlibrosa.stft import Spectrogram, LogmelFilterBank
+
+
+MODEL_VARIANTS = ("base", "bidirectional")
+
+
+def validate_model_variant(model_variant: str) -> None:
+    if model_variant not in MODEL_VARIANTS:
+        choices = ", ".join(MODEL_VARIANTS)
+        raise ValueError(
+            f"Unknown model_variant: {model_variant!r}. Expected one of: {choices}"
+        )
 
 
 def init_layer(layer):
@@ -210,14 +225,25 @@ class FusionModule(nn.Module):
         "concat_mlp": FX_emb = MLP(cat(emb_dry, emb_wet))
         "gate":       FX_emb = gate * emb_wet + (1-gate) * emb_dry
                       gate = sigmoid(W * cat(emb_dry, emb_wet))
-        "diff_gate":  FX_emb = gate * (emb_wet - emb_dry) + (1-gate) * emb_wet
-                      既保留差分信息，又保留绝对信息
+        Base "diff_gate":
+            FX_emb = gate(cat(dry, wet)) * (wet - dry) + (1-gate) * wet
+        Bidirectional "diff_gate":
+            FX_emb = gate(dry + wet) * (wet - dry)
+            The symmetric gate makes the fusion strictly antisymmetric.
     """
 
-    def __init__(self, embed_dim, fusion_type="diff_gate"):
+    def __init__(
+        self, embed_dim, fusion_type="diff_gate", model_variant="base"
+    ):
         super().__init__()
+        validate_model_variant(model_variant)
+        if model_variant == "bidirectional" and fusion_type != "diff_gate":
+            raise ValueError(
+                "The bidirectional variant requires fusion_type='diff_gate'"
+            )
         self.embed_dim = embed_dim
         self.fusion_type = fusion_type
+        self.model_variant = model_variant
 
         if fusion_type == "concat_mlp":
             self.fuse_mlp = nn.Sequential(
@@ -235,8 +261,11 @@ class FusionModule(nn.Module):
             self._init_mlp(self.gate_proj)
 
         elif fusion_type == "diff_gate":
+            gate_input_dim = (
+                embed_dim if model_variant == "bidirectional" else embed_dim * 2
+            )
             self.gate_proj = nn.Sequential(
-                nn.Linear(embed_dim * 2, embed_dim),
+                nn.Linear(gate_input_dim, embed_dim),
                 nn.Sigmoid(),
             )
             self._init_mlp(self.gate_proj)
@@ -271,9 +300,35 @@ class FusionModule(nn.Module):
             return gate * emb_wet + (1 - gate) * emb_dry
 
         elif self.fusion_type == "diff_gate":
-            gate = self.gate_proj(torch.cat([emb_dry, emb_wet], dim=-1))
             diff = emb_wet - emb_dry
+            if self.model_variant == "bidirectional":
+                gate = self.gate_proj(emb_dry + emb_wet)
+                return gate * diff
+            gate = self.gate_proj(torch.cat([emb_dry, emb_wet], dim=-1))
             return gate * diff + (1 - gate) * emb_wet
+
+
+class ProjectionHead(nn.Sequential):
+    """Projection used by one of the two paper model variants.
+
+    The bidirectional variant uses Tanh to promote sign preservation. Its
+    Linear layers retain learned biases, so strict antisymmetry is guaranteed
+    only at the fusion output, not at the final normalized projection.
+    """
+
+    def __init__(self, embed_dim, proj_dim, model_variant="base"):
+        validate_model_variant(model_variant)
+        activation = (
+            nn.Tanh()
+            if model_variant == "bidirectional"
+            else nn.ReLU(inplace=False)
+        )
+        super().__init__(
+            nn.Linear(embed_dim, embed_dim),
+            activation,
+            nn.Linear(embed_dim, proj_dim),
+        )
+        self.model_variant = model_variant
 
 
 # ===================== V4 主模型 =====================
@@ -308,11 +363,13 @@ class DualBranchFxEncoder(nn.Module):
         cross_attn_heads: int = 4,
         cross_attn_pool: int = 4,
         cross_attn_scale: float = 0.1,
+        model_variant: str = "base",
     ):
         super().__init__()
 
         self.embed_dim = embed_dim
         self.proj_dim = proj_dim
+        self.model_variant = model_variant
 
         # 默认在 Stage 3 和 Stage 5 后插入交叉注意力
         if cross_attn_stages is None:
@@ -373,13 +430,17 @@ class DualBranchFxEncoder(nn.Module):
         self.fc_embed = nn.Linear(2048, embed_dim, bias=True)
 
         # ============ 融合模块 ============
-        self.fusion = FusionModule(embed_dim, fusion_type=fusion_type)
+        self.fusion = FusionModule(
+            embed_dim,
+            fusion_type=fusion_type,
+            model_variant=model_variant,
+        )
 
-        # ============ Projection Head (SimCLR style) ============
-        self.projection = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim),
-            nn.ReLU(inplace=False),
-            nn.Linear(embed_dim, proj_dim),
+        # ============ Projection Head ============
+        self.projection = ProjectionHead(
+            embed_dim,
+            proj_dim,
+            model_variant=model_variant,
         )
 
         self._init_weights()
@@ -501,6 +562,7 @@ def create_model(
     cross_attn_heads=4,
     cross_attn_pool=4,
     cross_attn_scale=0.1,
+    model_variant="base",
 ):
     """Create the RelFx paper model."""
     model = DualBranchFxEncoder(
@@ -508,6 +570,7 @@ def create_model(
         embed_dim=embed_dim,
         proj_dim=proj_dim,
         fusion_type=fusion_type,
+        model_variant=model_variant,
         cross_attn_stages=cross_attn_stages,
         cross_attn_heads=cross_attn_heads,
         cross_attn_pool=cross_attn_pool,
@@ -515,7 +578,10 @@ def create_model(
     )
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[RelFx] DualBranchFxEncoder | fusion={fusion_type}")
+    print(
+        f"[RelFx] DualBranchFxEncoder | variant={model_variant} | "
+        f"fusion={fusion_type}"
+    )
     print(f"[RelFx] Total params: {total_params:,}, Trainable: {trainable_params:,}")
 
     # 分解参数量

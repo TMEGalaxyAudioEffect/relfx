@@ -15,6 +15,10 @@ differentiable audio-effect parameter matching. This repository accompanies
 the ISMIR 2026 paper **"Beyond Dry References: Learning Relative Audio Effects
 Representations via Contrastive Distance Learning."**
 
+The source includes both paper architectures: the default Base Diff-Gate model
+and the separately trained bidirectional-compatible variant. The downloadable
+checkpoint is the Base model only.
+
 > First-party RelFx source code is released under the MIT License; third-party
 > components remain under their respective licenses. The verified MoisesDB-only
 > checkpoint is hosted separately in the
@@ -106,6 +110,22 @@ The Python API follows the same convention: `model.get_embedding(...)`,
 as `model(...)["fusion"]` or `model.get_fusion_representation(...)`; pass
 `normalized=True` to the latter when an L2-normalized copy is needed. Run
 `scripts/embed.py --help` for direct CLI control.
+
+## Model variants
+
+- `base` (default) uses the Diff-Gate in Eq. (4) and a ReLU projection head.
+  Swapping its two inputs is not guaranteed to reverse the representation. The
+  public MoisesDB-only checkpoint is this variant.
+- `bidirectional` implements Eqs. (6)-(7): its gate uses the branch sum, its
+  fusion output contains only the gated difference, and its projection uses
+  Tanh. The fusion output is strictly antisymmetric. Because both projection
+  Linear layers retain learned biases, the final normalized 128-dimensional
+  representation is only empirically approximately antisymmetric.
+
+The bidirectional architecture and training path are public, but no
+bidirectional checkpoint is distributed. Negating a Base embedding is not an
+implementation of the bidirectional model. See
+[docs/training.md](docs/training.md) for the explicit training command.
 
 ## ITO parameter matching
 

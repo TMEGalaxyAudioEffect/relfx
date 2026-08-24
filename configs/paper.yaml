@@ -9,13 +9,22 @@ frontend:
   fmin: 50
   fmax: 18000
 model:
-  embedding_dim: 2048
-  projection_dim: 128
-  fusion: diff_gate
+  model_variant: base
+  fusion_dimension: 2048
+  projected_dimension: 128
+  fusion_type: diff_gate
   cross_attention_stages: [3, 5]
   cross_attention_heads: 4
   cross_attention_pool: 4
   cross_attention_scale: 0.1
+bidirectional_model:
+  model_variant: bidirectional
+  fusion_type: diff_gate
+  gate_input: branch_sum
+  include_absolute_processed_term: false
+  projection_activation: tanh
+  training_flip_ratio: 0.5
+  checkpoint_released: false
 training:
   epochs: 200
   learning_rate: 0.0003

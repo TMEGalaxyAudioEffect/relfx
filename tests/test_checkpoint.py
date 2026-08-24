@@ -6,7 +6,11 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 
-from relfx.checkpoint import RELFX_METADATA_KEY, load_safetensors_artifact
+from relfx.checkpoint import (
+    RELFX_METADATA_KEY,
+    load_safetensors_artifact,
+    resolve_model_variant,
+)
 
 
 class SafetensorsCheckpointTest(unittest.TestCase):
@@ -34,6 +38,24 @@ class SafetensorsCheckpointTest(unittest.TestCase):
     def test_rejects_pickle_checkpoint_suffix(self):
         with self.assertRaisesRegex(ValueError, "safetensors"):
             load_safetensors_artifact("model.pt")
+
+    def test_resolves_existing_v6_artifacts_as_base(self):
+        metadata = {"version": "v6", "model_config": {"fusion_type": "diff_gate"}}
+
+        self.assertEqual(resolve_model_variant(metadata), "base")
+
+    def test_resolves_original_v8_artifacts_as_bidirectional(self):
+        metadata = {"version": "v8", "model_config": {"fusion_type": "diff_gate"}}
+
+        self.assertEqual(resolve_model_variant(metadata), "bidirectional")
+
+    def test_explicit_model_variant_takes_precedence(self):
+        metadata = {
+            "version": "v8",
+            "model_config": {"model_variant": "base"},
+        }
+
+        self.assertEqual(resolve_model_variant(metadata), "base")
 
 
 if __name__ == "__main__":
