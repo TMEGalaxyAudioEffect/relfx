@@ -18,4 +18,5 @@ python scripts/embed.py \
   --checkpoint "$RELFX_CHECKPOINT_PATH" \
   --reference "$reference_audio" \
   --processed "$processed_audio" \
+  --representation projected \
   --output "$output_path"

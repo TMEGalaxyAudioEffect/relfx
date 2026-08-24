@@ -6,8 +6,9 @@
 
 RelFx encodes the audio-effects transformation between two audio clips. Given
 a reference clip and a processed clip, it produces a normalized
-2048-dimensional embedding that describes how their effects differ, even when
-the clips contain different musical content.
+128-dimensional projected representation that describes how their effects
+differ, even when the clips contain different musical content. The underlying
+2048-dimensional fusion representation is also available for analysis.
 
 The embedding can be used to compare or retrieve processing styles and to guide
 differentiable audio-effect parameter matching. This repository accompanies
@@ -88,9 +89,23 @@ bash scripts/run_demo.sh \
 
 RelFx resamples both files to 44.1 kHz, converts them to stereo, and uses the
 first ten seconds. The files do not need to contain the same performance. The
-saved NumPy array is a normalized 2048-dimensional effects embedding.
+saved NumPy array is the normalized 128-dimensional projected representation
+used for contrastive training, retrieval, and ITO in the paper.
 
-For direct control, run `scripts/embed.py --help`.
+`scripts/embed.py` exposes both representation levels:
+
+- `--representation projected` (default) saves the normalized 128-dimensional
+  projection `z` used by the paper's retrieval and ITO evaluations.
+- `--representation fusion` saves the raw 2048-dimensional fusion
+  representation `e_fx` used as the input to the auxiliary parameter-regression
+  head.
+
+The Python API follows the same convention: `model.get_embedding(...)`,
+`model(...)["embedding"]`, and `model(...)["z"]` all return the final
+128-dimensional representation. The raw unprojected intermediate is available
+as `model(...)["fusion"]` or `model.get_fusion_representation(...)`; pass
+`normalized=True` to the latter when an L2-normalized copy is needed. Run
+`scripts/embed.py --help` for direct CLI control.
 
 ## ITO parameter matching
 

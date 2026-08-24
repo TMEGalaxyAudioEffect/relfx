@@ -33,7 +33,8 @@ The public paper configuration uses:
 - 44.1 kHz stereo, 10-second clips;
 - an eight-processor, 72-parameter differentiable training chain;
 - dual shared CNN branches with cross-attention at stages 3 and 5;
-- a 2048-dimensional effects embedding and 128-dimensional projection;
+- a 2048-dimensional fusion representation and 128-dimensional projected
+  representation;
 - dynamic per-effect sampling probabilities;
 - AdamW with an initial learning rate of `3e-4`.
 

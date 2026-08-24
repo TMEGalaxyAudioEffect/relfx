@@ -15,10 +15,11 @@ See THIRD_PARTY_NOTICES.md and the retained third-party licenses.
     │                           ↕ CrossAttn (层间交互)                │
     │   湿声 FX(A') (2ch) ──→ SharedEncoder ──→ feat_wet             │
     │                                                                 │
-    │   融合: FX_emb = Fuse(feat_dry, feat_wet)                      │
+    │   分支投影: feat → fc_embed → emb_dry, emb_wet                 │
+    │   融合: e_fx = Fuse(emb_dry, emb_wet)                          │
     │       可选策略: "diff" | "concat_mlp" | "cross_attn" | "gate"  │
     │                                                                 │
-    │   FX_emb → fc_embed → embedding → projection → z               │
+    │   e_fx (2048-d) → projection → z (128-d)                       │
     │                                                                 │
     └─────────────────────────────────────────────────────────────────┘
 
@@ -27,10 +28,10 @@ See THIRD_PARTY_NOTICES.md and the retained third-party licenses.
     - 保持主干参数共享, 只有 CrossAttn 模块是额外参数
     - 让两个分支"知道"对方的特征, 便于后续差分
 
-与 V3 的接口一致:
-    - forward(original, processed) → {'embedding': (B, D), 'z': (B, P)}
-    - get_embedding(original, processed) → (B, D)
-    - 可直接复用 V3 的 loss.py 和 dataset.py
+公开表示接口:
+    - forward(original, processed)["embedding"] → normalized z (B, 128)
+    - forward(original, processed)["fusion"] → e_fx (B, 2048)
+    - get_embedding(original, processed) → normalized z (B, 128)
 """
 
 import torch
@@ -288,7 +289,8 @@ class DualBranchFxEncoder(nn.Module):
         original:  (B, 2, T) 干声 stereo
         processed: (B, 2, T) 湿声 stereo
     输出:
-        {'embedding': (B, embed_dim), 'z': (B, proj_dim)}
+        {'embedding': (B, proj_dim), 'z': (B, proj_dim),
+         'fusion': (B, embed_dim)}
     """
 
     def __init__(
@@ -443,22 +445,23 @@ class DualBranchFxEncoder(nn.Module):
 
         return emb_dry, emb_wet
 
-    def forward_projection(self, embedding):
-        """投影头: embedding → z (L2 normalized)"""
-        z = self.projection(embedding)
+    def forward_projection(self, fusion):
+        """投影头: e_fx → z (L2 normalized)"""
+        z = self.projection(fusion)
         z = F.normalize(z, dim=-1)
         return z
 
     def forward(self, original, processed):
         """
-        完整前向传播 — 与 V3 接口一致。
+        Complete forward pass following the paper's representation hierarchy.
 
         Args:
             original:  (B, 2, T) 干声
             processed: (B, 2, T) 湿声
         Returns:
-            dict: {'embedding': (B, embed_dim), 'z': (B, proj_dim),
-                   'emb_dry': (B, embed_dim), 'emb_wet': (B, embed_dim)}
+            dict: {'embedding': (B, proj_dim), 'z': (B, proj_dim),
+                   'fusion': (B, embed_dim), 'emb_dry': (B, embed_dim),
+                   'emb_wet': (B, embed_dim)}
         """
         emb_dry, emb_wet = self.forward_dual_backbone(original, processed)
 
@@ -469,14 +472,19 @@ class DualBranchFxEncoder(nn.Module):
         z = self.forward_projection(fx_embedding)
 
         return {
-            'embedding': fx_embedding,
+            'embedding': z,
             'z': z,
+            'fusion': fx_embedding,
             'emb_dry': emb_dry,
             'emb_wet': emb_wet,
         }
 
-    def get_embedding(self, original, processed, normalized=True):
-        """仅获取 FX embedding（推理用）— 与 V3 接口一致。"""
+    def get_embedding(self, original, processed):
+        """Return the final normalized 128-d embedding used in the paper."""
+        return self.forward(original, processed)['z']
+
+    def get_fusion_representation(self, original, processed, normalized=False):
+        """Return the 2048-d e_fx representation before projection."""
         emb_dry, emb_wet = self.forward_dual_backbone(original, processed)
         fx_embedding = self.fusion(emb_dry, emb_wet)
         if normalized:

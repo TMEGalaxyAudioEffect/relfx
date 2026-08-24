@@ -24,11 +24,14 @@ def main() -> None:
     processed = torch.randn(1, 2, samples, device=args.device) * 0.01
     with torch.inference_mode():
         output = model(reference, processed)
-    assert output["embedding"].shape == (1, 2048)
+    assert output["embedding"].shape == (1, 128)
     assert output["z"].shape == (1, 128)
+    assert output["fusion"].shape == (1, 2048)
+    assert torch.equal(output["embedding"], output["z"])
     print(
         f"Smoke test passed on {args.device}: "
-        f"embedding={tuple(output['embedding'].shape)}, z={tuple(output['z'].shape)}"
+        f"fusion={tuple(output['fusion'].shape)}, "
+        f"embedding={tuple(output['embedding'].shape)}"
     )
 
 

@@ -414,11 +414,11 @@ def train_one_epoch(
                 z_b    = out_all['z'][B:2*B]
                 z_diff = out_all['z'][2*B:]
 
-                emb_a = out_all['embedding'][:B]
+                fusion_a = out_all['fusion'][:B]
 
                 loss, loss_dict = criterion(
                     z_a, z_b, z_diff,
-                    embedding_a=emb_a,
+                    fusion_a=fusion_a,
                     params_shared=nn_param_shared,
                     activate_shared=activate_shared,
                     params_diff=nn_param_diff,
@@ -433,11 +433,11 @@ def train_one_epoch(
             z_b    = out_all['z'][B:2*B]
             z_diff = out_all['z'][2*B:]
 
-            emb_a = out_all['embedding'][:B]
+            fusion_a = out_all['fusion'][:B]
 
             loss, loss_dict = criterion(
                 z_a, z_b, z_diff,
-                embedding_a=emb_a,
+                fusion_a=fusion_a,
                 params_shared=nn_param_shared,
                 activate_shared=activate_shared,
                 params_diff=nn_param_diff,
@@ -565,11 +565,11 @@ def validate(
         z_a    = out_all['z'][:B]
         z_b    = out_all['z'][B:2*B]
         z_diff = out_all['z'][2*B:]
-        emb_a  = out_all['embedding'][:B]
+        fusion_a = out_all['fusion'][:B]
 
         loss, loss_dict = criterion(
             z_a, z_b, z_diff,
-            embedding_a=emb_a,
+            fusion_a=fusion_a,
             params_shared=nn_param_shared,
             activate_shared=activate_shared,
             params_diff=nn_param_diff,
@@ -610,7 +610,7 @@ def validate(
 def evaluate_ld_regression(model, criterion, fx_chain, device, triplets_dir, dataset="musdb18"):
     """
     用三元组数据做完整 Ld 评估：
-      model(clean, reference) → embedding → param_head → params → fx_chain(clean, params)
+      model(clean, reference) → fusion → param_head → params → fx_chain(clean, params)
       Ld = MR_STFT(output, target)
 
     Args:
@@ -671,10 +671,10 @@ def evaluate_ld_regression(model, criterion, fx_chain, device, triplets_dir, dat
             target_t = torch.from_numpy(target).unsqueeze(0).float().to(device)
             ref_t = torch.from_numpy(ref).unsqueeze(0).float().to(device)
 
-            # model(clean, reference) → embedding → param_head → params (72 维)
+            # model(clean, reference) → fusion → param_head → params (72 维)
             out = model(clean_t, ref_t)
-            emb = out['embedding']  # (1, 2048)
-            param_pred, _ = reg_head(emb)  # (1, 72)
+            fusion = out['fusion']  # (1, 2048)
+            param_pred, _ = reg_head(fusion)  # (1, 72)
 
             # 过效果链 (训练用的 Random_FX_Chain 接收 72 维参数)
             # 三元组数据不含 reverb，所以 reverb activate=0

@@ -136,9 +136,9 @@ class NTXentLoss(nn.Module):
 
 class ParamRegressionHead(nn.Module):
     """
-    参数回归 Head — 从 embedding 预测 FX 参数值。
+    参数回归 Head — 从 2048-d fusion representation 预测 FX 参数值。
 
-    强制 embedding 必须编码参数的连续值，否则回归 loss 不会下降。
+    强制 fusion representation 编码参数的连续值，否则回归 loss 不会下降。
     可选择同时预测 activate（开关），用 BCE loss。
     """
 
@@ -193,10 +193,10 @@ class ParamRegressionHead(nn.Module):
                 nn.Linear(hidden_dim, num_fx),
             )
 
-    def forward(self, embedding):
+    def forward(self, fusion):
         """
         Args:
-            embedding: (B, embed_dim)
+            fusion: (B, embed_dim)
         Returns:
             param_pred: (B, total_fx_params)
             activate_pred: (B, num_fx) logits — 如果 predict_activate
@@ -205,18 +205,18 @@ class ParamRegressionHead(nn.Module):
             parts = []
             for fx_idx, (s, e) in enumerate(self.fx_param_ranges):
                 if e > s and self.param_heads[fx_idx] is not None:
-                    parts.append(self.param_heads[fx_idx](embedding))
+                    parts.append(self.param_heads[fx_idx](fusion))
                 else:
                     parts.append(torch.zeros(
-                        embedding.shape[0], 0, device=embedding.device
+                        fusion.shape[0], 0, device=fusion.device
                     ))
             param_pred = torch.cat(parts, dim=-1)
         else:
-            param_pred = self.param_head(embedding)
+            param_pred = self.param_head(fusion)
 
         activate_pred = None
         if self.predict_activate:
-            activate_pred = self.activate_head(embedding)
+            activate_pred = self.activate_head(fusion)
 
         return param_pred, activate_pred
 
@@ -481,7 +481,7 @@ class CombinedLoss(nn.Module):
         criterion = CombinedLoss(switches, configs, fx_param_ranges)
         loss, loss_dict = criterion(
             z_a, z_b, z_diff,
-            embedding_a,
+            fusion_a,
             params_shared, activate_shared,
             params_diff, activate_diff,
         )
@@ -565,7 +565,7 @@ class CombinedLoss(nn.Module):
     def forward(
         self,
         z_a, z_b, z_diff=None,
-        embedding_a=None,
+        fusion_a=None,
         params_shared=None, activate_shared=None,
         params_diff=None, activate_diff=None,
     ):
@@ -575,7 +575,7 @@ class CombinedLoss(nn.Module):
         Args:
             z_a, z_b: (B, proj_dim) — 正样本对的 projection
             z_diff: (B, proj_dim) — 负样本 (不同 FX) 的 projection
-            embedding_a: (B, embed_dim) — anchor 的 embedding (回归用)
+            fusion_a: (B, embed_dim) — anchor 的 e_fx (参数回归用)
             params_shared: (B, total_params) — 正样本共享的 FX 参数
             activate_shared: (B, num_fx) — 正样本共享的 activate
             params_diff: (B, total_params) — 负样本的 FX 参数
@@ -607,9 +607,9 @@ class CombinedLoss(nn.Module):
             result['baseline_triplet'] = triplet_loss.item()
 
         # ---- 方法 1: 参数回归 ----
-        if self.param_regression_loss is not None and embedding_a is not None:
+        if self.param_regression_loss is not None and fusion_a is not None:
             assert params_shared is not None, "方法1需要 params_shared"
-            param_pred, activate_pred = self.param_regression_head(embedding_a)
+            param_pred, activate_pred = self.param_regression_head(fusion_a)
             reg_loss, reg_dict = self.param_regression_loss(
                 param_pred, params_shared, activate_pred, activate_shared,
             )

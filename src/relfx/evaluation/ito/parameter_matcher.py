@@ -649,7 +649,7 @@ class ParameterMatcher:
             processed_rs = processed
             original_rs = original
 
-        # V2 模型: forward(original, processed) → {'embedding': ..., 'z': ...}
+        # V2 模型使用最终投影表示 z 进行 ITO。
         out = model(original_rs, processed_rs)
         z = out['z']  # (B, proj_dim), 已经 L2 normalized
 
@@ -663,8 +663,8 @@ class ParameterMatcher:
             - original (干声): 未经效果处理的音频
             - processed (湿声): 经过效果链处理后的音频
 
-        输出的 embedding 是 FX signature = Fusion(emb_dry, emb_wet)，
-        代表的是 "变换本身"，而不是音频内容。
+        ITO 使用最终投影表示 z，它由 fusion representation e_fx 经投影头
+        和 L2 normalization 得到，代表输入音频之间的效果变换。
         """
         import torchaudio
 
@@ -680,7 +680,7 @@ class ParameterMatcher:
             processed_rs = processed
             original_rs = original
 
-        # V4 模型: forward(original, processed) → {'embedding': ..., 'z': ..., 'emb_dry': ..., 'emb_wet': ...}
+        # RelFx ITO 与论文一致，使用最终 128-d projected representation z。
         out = model(original_rs, processed_rs)
         z = out['z']  # (B, proj_dim), 已经 L2 normalized
 
