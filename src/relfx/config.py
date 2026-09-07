@@ -24,12 +24,14 @@ def _path_list(name: str) -> list[str]:
 AUDIO_DIRS = _path_list("RELFX_AUDIO_DIRS")
 AUDIO_DIR = AUDIO_DIRS[0] if AUDIO_DIRS else ""
 
-# Optional JSON mapping track IDs to structural segments. See
-# docs/data-format.md for the public schema.
+# JSON mapping track or song IDs to structural sections. It is required when
+# the paper's cross-segment recipe is enabled; see docs/data-format.md.
 STRUCTURE_SEGMENT_JSON = os.environ.get("RELFX_STRUCTURE_SEGMENTS")
-STRUCTURED_AUDIO_DIRS = set(_path_list("RELFX_STRUCTURED_AUDIO_DIRS"))
 DENSITY_FILTER_AUDIO_DIRS = set(_path_list("RELFX_DENSITY_FILTER_AUDIO_DIRS"))
+STEM_AUDIO_DIRS = set(_path_list("RELFX_STEM_AUDIO_DIRS"))
 VALID_STRUCTURE_LABELS = {"verse", "chorus"}
+CROSS_SEGMENT_POLICY = "same_section_adjacent"
+PAPER_RECIPE_VERSION = "ismir2026-same-section-adjacent-v1"
 
 # Outputs
 CHECKPOINT_DIR = os.environ.get(
@@ -145,7 +147,7 @@ TRAIN_CONFIG = {
     "batch_size": 48,
     "num_workers": 8,
     "epochs": 200,
-    "lr": 3e-4,
+    "lr": 5e-4,
     "weight_decay": 1e-5,
     "temperature": 0.15,
     "embed_dim": 2048,

@@ -18,25 +18,37 @@ Pass one or more audio roots with repeated `--audio-dir` arguments:
 ```bash
 torchrun --nproc_per_node=4 -m relfx.train \
   --audio-dir /path/to/source-a \
-  --audio-dir /path/to/source-b
+  --audio-dir /path/to/source-b \
+  --structure-segments /path/to/segments.json \
+  --density-filter-audio-dir /path/to/moisesdb \
+  --stem-audio-dir /path/to/moisesdb
 ```
 
-Alternatively, set `RELFX_AUDIO_DIRS` to an OS-path-separator-delimited list.
-The loader performs a song-disjoint training/validation split. See
-[data-format.md](data-format.md) for filename conventions and optional
-structural metadata.
+Alternatively, use `RELFX_AUDIO_DIRS`, `RELFX_STRUCTURE_SEGMENTS`,
+`RELFX_DENSITY_FILTER_AUDIO_DIRS`, and `RELFX_STEM_AUDIO_DIRS`. Variables
+containing multiple paths use the operating system's path separator. The
+loader performs a song-disjoint training/validation split. The default paper
+recipe requires a structural-section manifest:
+
+```bash
+export RELFX_STRUCTURE_SEGMENTS=/path/to/segments.json
+```
+
+See [data-format.md](data-format.md) for the manifest schema and filename/song
+ID conventions.
 
 ## Paper configuration
 
 The public paper configuration uses:
 
 - 44.1 kHz stereo, 10-second clips;
+- adjacent, non-overlapping clip pairs sampled within one verse or chorus;
 - an eight-processor, 72-parameter differentiable training chain;
 - dual shared CNN branches with cross-attention at stages 3 and 5;
 - a 2048-dimensional fusion representation and 128-dimensional projected
   representation;
 - dynamic per-effect sampling probabilities;
-- AdamW with an initial learning rate of `3e-4`.
+- AdamW with an initial learning rate of `5e-4`.
 
 The complete sanitized configuration is in
 [`configs/paper.yaml`](../configs/paper.yaml).
@@ -79,6 +91,7 @@ Run one complete training and validation step without writing checkpoints:
 ```bash
 python -m relfx.train \
   --audio-dir /path/to/smoke-test-audio \
+  --no-cross-segment \
   --epochs 1 \
   --batch-size 1 \
   --num-workers 0 \

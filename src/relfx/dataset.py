@@ -1,15 +1,18 @@
 """Audio sampling and collation for RelFx training."""
 
+import hashlib
+import math
 import os
-import re
 import random
+import re
+from collections import defaultdict
+from pathlib import Path
+
 import numpy as np
+import soundfile as sf
 import torch
 import torchaudio
-import soundfile as sf
-from collections import defaultdict
 from torch.utils.data import Dataset, DataLoader
-from pathlib import Path
 
 from . import config as cfg
 
@@ -21,10 +24,13 @@ FX_CHAIN_ORDER = cfg.FX_CHAIN_ORDER
 FX_PROB = cfg.FX_PROB
 
 STRUCTURE_SEGMENT_JSON = getattr(cfg, "STRUCTURE_SEGMENT_JSON", None)
-STRUCTURED_AUDIO_DIRS = getattr(cfg, "STRUCTURED_AUDIO_DIRS", set())
 DENSITY_FILTER_AUDIO_DIRS = getattr(cfg, "DENSITY_FILTER_AUDIO_DIRS", set())
+STEM_AUDIO_DIRS = getattr(cfg, "STEM_AUDIO_DIRS", set())
 VALID_STRUCTURE_LABELS = getattr(
     cfg, "VALID_STRUCTURE_LABELS", {"verse", "chorus"}
+)
+CROSS_SEGMENT_POLICY = getattr(
+    cfg, "CROSS_SEGMENT_POLICY", "same_section_adjacent"
 )
 
 
@@ -45,7 +51,8 @@ class AudioSegmentDataset(Dataset):
         audio_a, audio_b 来自不同歌曲的随机片段
 
     cross_segment=True:
-        额外返回 audio_a_alt (同一首歌的不同位置)
+        额外返回 audio_a_alt。两个 10s 片段位于同一个结构段内，
+        时间上相邻且不重叠。
     """
 
     SUPPORTED_EXT = {'.wav', '.flac', '.mp3', '.ogg', '.m4a'}
@@ -61,14 +68,23 @@ class AudioSegmentDataset(Dataset):
         val_ratio: float = 0.15,
         split_seed: int = 42,
         structure_segment_json: str = STRUCTURE_SEGMENT_JSON,
-        structured_audio_dirs=None,
         density_filter_audio_dirs=None,
+        stem_audio_dirs=None,
         valid_structure_labels=None,
+        cross_segment_policy: str = CROSS_SEGMENT_POLICY,
     ):
         super().__init__()
         self.segment_samples = segment_samples
         self.sample_rate = sample_rate
         self.cross_segment = cross_segment
+        self.cross_segment_policy = cross_segment_policy
+        self.val_ratio = val_ratio
+        self.split_seed = split_seed
+        if cross_segment and cross_segment_policy != "same_section_adjacent":
+            raise ValueError(
+                "cross_segment requires policy='same_section_adjacent' for "
+                "the ISMIR 2026 paper recipe"
+            )
 
         # 支持多数据源
         if audio_dirs is not None:
@@ -79,51 +95,99 @@ class AudioSegmentDataset(Dataset):
             dirs_to_scan = AUDIO_DIRS
 
         self.audio_dirs = [os.path.abspath(d) for d in dirs_to_scan]
-        structured_audio_dirs = (
-            STRUCTURED_AUDIO_DIRS
-            if structured_audio_dirs is None
-            else structured_audio_dirs
-        )
         density_filter_audio_dirs = (
             DENSITY_FILTER_AUDIO_DIRS
             if density_filter_audio_dirs is None
             else density_filter_audio_dirs
         )
-        self.structured_audio_dirs = {
-            os.path.abspath(d) for d in structured_audio_dirs
-        }
+        stem_audio_dirs = STEM_AUDIO_DIRS if stem_audio_dirs is None else stem_audio_dirs
         self.density_filter_audio_dirs = {
             os.path.abspath(d) for d in density_filter_audio_dirs
         }
+        self.stem_audio_dirs = {os.path.abspath(d) for d in stem_audio_dirs}
         valid_structure_labels = (
             VALID_STRUCTURE_LABELS
             if valid_structure_labels is None
             else set(valid_structure_labels)
         )
+        valid_structure_labels = {
+            str(label).lower() for label in valid_structure_labels
+        }
+        self.valid_structure_labels = valid_structure_labels
+        self.structure_manifest_sha256 = None
+        self.eligible_files_before_split = 0
 
         all_files = []
         self._density_filter_files = set()
-        self._structured_files = set()
+        self._stem_files = set()
         for d in self.audio_dirs:
             found = self._scan_audio_files(d)
             print(f"  [Scan] {d}: {len(found)} files")
             if d in self.density_filter_audio_dirs:
                 self._density_filter_files.update(found)
-            if d in self.structured_audio_dirs:
-                self._structured_files.update(found)
+            if d in self.stem_audio_dirs:
+                self._stem_files.update(found)
             all_files.extend(found)
 
         self._structure_segments = {}
-        if (
-            structure_segment_json
-            and os.path.exists(structure_segment_json)
-            and self._structured_files
-        ):
+        self._structure_manifest_keys = set()
+        self._file_structure_keys = {}
+        if cross_segment:
+            if not structure_segment_json:
+                raise RuntimeError(
+                    "Paper-aligned cross-segment sampling requires a structural "
+                    "segment manifest. Set RELFX_STRUCTURE_SEGMENTS or pass "
+                    "structure_segment_json."
+                )
+            if not os.path.isfile(structure_segment_json):
+                raise RuntimeError(
+                    f"Structural segment manifest not found: {structure_segment_json}"
+                )
+
+            self.structure_manifest_sha256 = self._sha256_file(
+                structure_segment_json
+            )
             self._load_structure_segments(
                 structure_segment_json, valid_structure_labels
             )
 
+            eligible_files = []
+            missing_manifest_files = []
+            for filepath in all_files:
+                if not any(
+                    key in self._structure_manifest_keys
+                    for key in self._structure_key_candidates(filepath)
+                ):
+                    missing_manifest_files.append(filepath)
+                    continue
+                structure_key = self._resolve_structure_key(filepath)
+                if structure_key is not None:
+                    self._file_structure_keys[filepath] = structure_key
+                    eligible_files.append(filepath)
+            if missing_manifest_files:
+                examples = ", ".join(
+                    os.path.basename(path)
+                    for path in missing_manifest_files[:3]
+                )
+                raise RuntimeError(
+                    "Structural manifest does not cover "
+                    f"{len(missing_manifest_files)} audio files "
+                    f"(examples: {examples})"
+                )
+            skipped = len(all_files) - len(eligible_files)
+            if skipped:
+                print(
+                    "  [Structure] Skipped "
+                    f"{skipped} files without an eligible same-section pair"
+                )
+            all_files = eligible_files
+            self.eligible_files_before_split = len(all_files)
         if len(all_files) == 0:
+            if cross_segment:
+                raise RuntimeError(
+                    "No audio files have a verse/chorus section long enough "
+                    "for two adjacent clips"
+                )
             raise RuntimeError(f"No audio files found in {dirs_to_scan}")
 
         # 按歌曲 ID 做 train/val split
@@ -137,9 +201,44 @@ class AudioSegmentDataset(Dataset):
         if len(self.audio_files) == 0:
             raise RuntimeError(f"No audio files after split='{split}' in {audio_dir}")
 
-        mode_str = "cross_segment" if cross_segment else "same_segment (V2)"
+        mode_str = (
+            f"cross_segment ({self.cross_segment_policy})"
+            if cross_segment
+            else "same_segment (V2)"
+        )
         split_str = f"split={split}" if split else "no split"
         print(f"[Dataset V6] {len(self.audio_files)} files ({split_str}) from {len(dirs_to_scan)} sources | mode: {mode_str}")
+
+    @staticmethod
+    def _sha256_file(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def sampling_metadata(self):
+        """Return path-free provenance for checkpoint metadata."""
+        return {
+            "cross_segment": self.cross_segment,
+            "policy": (
+                self.cross_segment_policy if self.cross_segment else None
+            ),
+            "sample_rate": self.sample_rate,
+            "segment_samples": self.segment_samples,
+            "validation_ratio": self.val_ratio,
+            "split_seed": self.split_seed,
+            "section_labels": sorted(self.valid_structure_labels),
+            "structural_manifest_sha256": self.structure_manifest_sha256,
+            "sampler_source_sha256": self._sha256_file(__file__),
+            "eligible_files_before_split": self.eligible_files_before_split,
+            "selected_files": len(self.audio_files),
+            "density_filtered_files": len(
+                self._density_filter_files.intersection(self.audio_files)
+            ),
+            "stem_files": len(self._stem_files.intersection(self.audio_files)),
+            "minimum_content_ratio": self.MIN_CONTENT_RATIO,
+        }
 
     @staticmethod
     def _extract_song_id(filepath: str) -> str:
@@ -240,22 +339,39 @@ class AudioSegmentDataset(Dataset):
         """
         Load public structural-segment metadata.
 
-        构建 {track_id: [(start_sec, end_sec), ...]} 映射。
+        Build a mapping from track/song IDs to sections long enough to hold
+        two adjacent, non-overlapping clips.
         """
         import json as _json
         with open(json_path) as f:
             data = _json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Structural manifest must contain a JSON object")
+        self._structure_manifest_keys = {str(key) for key in data}
 
         n_tracks = 0
         n_segments = 0
+        pair_duration = 2 * self.segment_samples / self.sample_rate
         for track_id, info in data.items():
+            if not isinstance(info, dict):
+                continue
             segs = info.get('segments', [])
             valid = []
             for s in segs:
-                if s['label'] in valid_labels and s['duration'] >= self.segment_samples / self.sample_rate:
-                    valid.append((s['start'], s['end']))
-            if len(valid) >= 2:  # 至少需要 2 个有效段才能做 cross-segment
-                self._structure_segments[track_id] = valid
+                try:
+                    label = str(s['label']).lower()
+                    start = float(s['start'])
+                    end = float(s['end'])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if (
+                    label in valid_labels
+                    and start >= 0
+                    and end - start >= pair_duration
+                ):
+                    valid.append({"label": label, "start": start, "end": end})
+            if valid:
+                self._structure_segments[str(track_id)] = valid
                 n_tracks += 1
                 n_segments += len(valid)
 
@@ -264,62 +380,72 @@ class AudioSegmentDataset(Dataset):
             f"{n_tracks} tracks with {n_segments} eligible segments"
         )
 
-    def _get_structure_track_id(self, filepath):
-        """Use the filename stem as the public structural-metadata key."""
-        return os.path.basename(filepath).rsplit('.', 1)[0]
+    @classmethod
+    def _structure_key_candidates(cls, filepath):
+        """Return manifest keys supported for a file, most specific first."""
+        stem = os.path.basename(filepath).rsplit('.', 1)[0]
+        song_id = cls._extract_song_id(filepath)
+        return list(dict.fromkeys((stem, song_id)))
+
+    def _resolve_structure_key(self, filepath):
+        for key in self._structure_key_candidates(filepath):
+            if key in self._structure_segments:
+                return key
+        return None
 
     def _load_two_structured_segments(self, filepath):
         """
-        Load two clips from distinct eligible structural segments.
-
-        优先从不同的段落中各取一个 10s 片段 (真正的 cross-segment)。
-        如果只有同一段落可用，则在段落内取两个不重叠的位置。
+        Load two adjacent, non-overlapping clips from one structural section.
 
         Returns:
             seg1, seg2: (2, segment_samples) numpy arrays
         """
-        track_id = self._get_structure_track_id(filepath)
-        segments = self._structure_segments.get(track_id, None)
-
-        if segments is None or len(segments) < 2:
-            # fallback: 没有分段信息，用原始方法
-            return self._load_two_different_segments(filepath)
+        structure_key = self._file_structure_keys.get(filepath)
+        sections = self._structure_segments.get(structure_key, [])
+        if not sections:
+            raise RuntimeError(
+                f"No eligible structural section for cross-segment pair: {filepath}"
+            )
 
         try:
             info = sf.info(filepath)
             sr = info.samplerate
-            needed_sec = self.segment_samples / self.sample_rate
+            clip_frames = math.ceil(self.segment_samples * sr / self.sample_rate)
+            candidates = []
+            for section in sections:
+                section_start = max(0, math.ceil(section["start"] * sr))
+                section_end = min(info.frames, math.floor(section["end"] * sr))
+                if section_end - section_start >= 2 * clip_frames:
+                    candidates.append((section_start, section_end))
+            if not candidates:
+                raise RuntimeError(
+                    f"No section contains two complete clips in {filepath}"
+                )
 
-            # 随机选两个不同的段落
-            if len(segments) >= 2:
-                idx1, idx2 = random.sample(range(len(segments)), 2)
-            else:
-                idx1 = idx2 = 0
+            section_start, section_end = random.choice(candidates)
+            first_start = random.randint(
+                section_start, section_end - 2 * clip_frames
+            )
+            second_start = first_start + clip_frames
 
-            seg1_start, seg1_end = segments[idx1]
-            seg2_start, seg2_end = segments[idx2]
-
-            # 在段落内随机选一个起始位置
-            def pick_start(seg_start, seg_end):
-                available = seg_end - seg_start - needed_sec
-                if available <= 0:
-                    return seg_start
-                offset = random.random() * available
-                return seg_start + offset
-
-            start1_sec = pick_start(seg1_start, seg1_end)
-            start2_sec = pick_start(seg2_start, seg2_end)
-
-            start1_frame = int(start1_sec * sr)
-            start2_frame = int(start2_sec * sr)
-
-            s1 = self._load_segment(filepath, start_hint=start1_frame)
-            s2 = self._load_segment(filepath, start_hint=start2_frame)
+            s1 = self._load_segment(
+                filepath,
+                start_hint=first_start,
+                max_retries=1,
+                strict_start=True,
+            )
+            s2 = self._load_segment(
+                filepath,
+                start_hint=second_start,
+                max_retries=1,
+                strict_start=True,
+            )
             return s1, s2
 
         except Exception as e:
-            print(f"[Warning] Structural segment load error {filepath}: {e}")
-            return self._load_two_different_segments(filepath)
+            raise RuntimeError(
+                f"Could not load paper-aligned cross-segment pair from {filepath}"
+            ) from e
 
     # 内容密度阈值: 片段中"有音频"帧占比需 >= 此值
     MIN_CONTENT_RATIO = 0.7
@@ -355,7 +481,8 @@ class AudioSegmentDataset(Dataset):
         return content_frames / n_frames
 
     def _load_segment(self, filepath: str, start_hint: int = None,
-                      max_retries: int = 5) -> np.ndarray:
+                      max_retries: int = 5,
+                      strict_start: bool = False) -> np.ndarray:
         """
         从文件中加载一段音频。
 
@@ -377,16 +504,36 @@ class AudioSegmentDataset(Dataset):
             sr = info.samplerate
 
             if sr != self.sample_rate:
-                needed_frames = int(self.segment_samples * sr / self.sample_rate) + 1024
+                resampled_frames = math.ceil(
+                    self.segment_samples * sr / self.sample_rate
+                )
+                needed_frames = (
+                    resampled_frames if strict_start else resampled_frames + 1024
+                )
             else:
                 needed_frames = self.segment_samples
+
+            if strict_start:
+                if start_hint is None:
+                    raise ValueError("strict_start requires start_hint")
+                if start_hint < 0 or start_hint + needed_frames > total_frames:
+                    raise ValueError(
+                        f"Requested clip [{start_hint}, "
+                        f"{start_hint + needed_frames}) exceeds {filepath}"
+                    )
 
             best_audio = None
             best_ratio = -1.0
 
+            if strict_start:
+                retries = 1
             for attempt in range(retries):
                 if attempt == 0 and start_hint is not None and total_frames > needed_frames:
-                    start = min(start_hint, total_frames - needed_frames)
+                    start = (
+                        start_hint
+                        if strict_start
+                        else min(start_hint, total_frames - needed_frames)
+                    )
                 elif total_frames > needed_frames:
                     start = random.randint(0, total_frames - needed_frames)
                 else:
@@ -436,75 +583,25 @@ class AudioSegmentDataset(Dataset):
             max_val = np.abs(audio).max()
             if max_val > 1e-6:
                 audio = audio / max_val * 0.5
+            elif strict_start:
+                audio = np.zeros((2, self.segment_samples), dtype=np.float32)
             else:
                 audio = np.random.randn(2, self.segment_samples).astype(np.float32) * 0.01
 
             return audio.astype(np.float32)
 
         except Exception as e:
+            if strict_start:
+                raise
             print(f"[Warning] Error loading {filepath}: {e}")
             return np.random.randn(2, self.segment_samples).astype(np.float32) * 0.01
-
-    def _load_two_different_segments(self, filepath: str):
-        """
-        从同一首歌加载两个不重叠的片段。
-
-        Returns:
-            seg1: (2, segment_samples) — 第一个片段
-            seg2: (2, segment_samples) — 第二个片段 (不同位置)
-        """
-        try:
-            info = sf.info(filepath)
-            total_frames = info.frames
-            sr = info.samplerate
-
-            if sr != self.sample_rate:
-                needed_frames = int(self.segment_samples * sr / self.sample_rate) + 1024
-            else:
-                needed_frames = self.segment_samples
-
-            # 需要至少 2 个片段长度才能不重叠
-            if total_frames >= needed_frames * 2:
-                # 把文件分成两半，各取一个随机位置
-                half = total_frames // 2
-                start1 = random.randint(0, half - needed_frames)
-                start2 = random.randint(half, total_frames - needed_frames)
-            elif total_frames > needed_frames:
-                # 文件不够长，允许部分重叠但尽量拉开
-                start1 = random.randint(0, total_frames - needed_frames)
-                # 尝试取一个距离 start1 尽可能远的位置
-                if start1 < total_frames // 2:
-                    start2 = random.randint(
-                        min(start1 + needed_frames // 2, total_frames - needed_frames),
-                        total_frames - needed_frames,
-                    )
-                else:
-                    start2 = random.randint(
-                        0,
-                        max(start1 - needed_frames // 2, 0),
-                    )
-            else:
-                # 文件太短，两段只能一样了 (fallback)
-                start1 = 0
-                start2 = 0
-
-            seg1 = self._load_segment(filepath, start_hint=start1)
-            seg2 = self._load_segment(filepath, start_hint=start2)
-            return seg1, seg2
-
-        except Exception as e:
-            print(f"[Warning] Error loading two segments from {filepath}: {e}")
-            fallback = np.random.randn(2, self.segment_samples).astype(np.float32) * 0.01
-            return fallback.copy(), fallback.copy()
 
     def __len__(self):
         return min(len(self.audio_files), 8000)
 
     def __getitem__(self, idx):
         idx_a = idx % len(self.audio_files)
-        idx_b = random.randint(0, len(self.audio_files) - 1)
-        while idx_b == idx_a and len(self.audio_files) > 1:
-            idx_b = random.randint(0, len(self.audio_files) - 1)
+        idx_b = self._sample_second_track_index(idx_a)
 
         if self.cross_segment:
             audio_a, audio_a_alt = self._load_two_segments_with_fallback(idx_a)
@@ -523,6 +620,41 @@ class AudioSegmentDataset(Dataset):
                 'audio_b': torch.from_numpy(audio_b),
             }
 
+    def _sample_second_track_index(self, idx_a):
+        """Sample the second positive observation under the paper protocol."""
+        if len(self.audio_files) < 2:
+            return idx_a
+
+        path_a = self.audio_files[idx_a]
+        song_a = self._extract_song_id(path_a)
+        allow_same_song = path_a in self._stem_files
+
+        for _ in range(32):
+            idx_b = random.randint(0, len(self.audio_files) - 1)
+            if idx_b == idx_a:
+                continue
+            if (
+                not allow_same_song
+                and self._extract_song_id(self.audio_files[idx_b]) == song_a
+            ):
+                continue
+            return idx_b
+
+        candidates = [
+            index
+            for index, path in enumerate(self.audio_files)
+            if index != idx_a
+            and (
+                allow_same_song
+                or self._extract_song_id(path) != song_a
+            )
+        ]
+        if not candidates:
+            raise RuntimeError(
+                "Full-mix positive pairs require audio from two different songs"
+            )
+        return random.choice(candidates)
+
     def _load_segment_with_fallback(self, idx, max_file_retries=3):
         """Load a clip, changing files after repeated density failures."""
         for _ in range(max_file_retries):
@@ -540,15 +672,16 @@ class AudioSegmentDataset(Dataset):
         return audio  # 多次换文件仍不满足，用最后一个
 
     def _load_two_segments_with_fallback(self, idx, max_file_retries=3):
-        """Load two distinct clips with optional structure and density rules."""
+        """Load a strict same-section adjacent pair with density filtering."""
+        last_error = None
         for _ in range(max_file_retries):
             filepath = self.audio_files[idx]
-
-            if filepath in self._structured_files:
+            try:
                 seg1, seg2 = self._load_two_structured_segments(filepath)
-                return seg1, seg2
-
-            seg1, seg2 = self._load_two_different_segments(filepath)
+            except RuntimeError as error:
+                last_error = error
+                idx = random.randint(0, len(self.audio_files) - 1)
+                continue
             if filepath not in self._density_filter_files:
                 return seg1, seg2
             # 两个片段都要达标
@@ -561,7 +694,10 @@ class AudioSegmentDataset(Dataset):
             if r1 >= self.MIN_CONTENT_RATIO and r2 >= self.MIN_CONTENT_RATIO:
                 return seg1, seg2
             idx = random.randint(0, len(self.audio_files) - 1)
-        return seg1, seg2
+        raise RuntimeError(
+            "Could not sample a same-section adjacent pair satisfying the "
+            "configured content-density threshold"
+        ) from last_error
 
 
 class FxContrastiveCollator:

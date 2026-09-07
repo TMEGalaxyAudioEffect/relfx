@@ -16,12 +16,12 @@ the ISMIR 2026 paper **"Beyond Dry References: Learning Relative Audio Effects
 Representations via Contrastive Distance Learning."**
 
 The source includes both paper architectures: the default Base Diff-Gate model
-and the separately trained bidirectional-compatible variant. The downloadable
-checkpoint is the Base model only.
+and the separately trained bidirectional-compatible variant. Released
+checkpoints use the Base model only.
 
 > First-party RelFx source code is released under the MIT License; third-party
-> components remain under their respective licenses. The verified MoisesDB-only
-> checkpoint is hosted separately in the
+> components remain under their respective licenses. MoisesDB-only checkpoints
+> are hosted separately in the
 > [RelFx Hugging Face model repository](https://huggingface.co/TMEGalaxyAudioEffect/relfx-ismir2026)
 > under CC BY-NC-SA 4.0 and is never stored in this source repository.
 
@@ -54,8 +54,11 @@ CPU inference is supported but is substantially slower.
 
 ### 2. Obtain the checkpoint
 
-The checkpoint is publicly available and does not require a Hugging Face
-account. Download the verified artifact with the Hugging Face CLI:
+> The paper-aligned replacement checkpoint is being prepared. The verifier in
+> this source revision intentionally rejects earlier artifacts that do not
+> record the `same_section_adjacent` sampling policy.
+
+After the replacement is published, download it with the Hugging Face CLI:
 
 ```bash
 pip install -U huggingface_hub
@@ -74,8 +77,9 @@ export RELFX_CHECKPOINT_PATH="$RELFX_WEIGHTS_DIR/model.safetensors"
 python scripts/verify_checkpoint.py "$RELFX_CHECKPOINT_PATH"
 ```
 
-The verifier checks the epoch, V6 architecture, model configuration, training
-switches, state dictionary, and SHA-256.
+The verifier checks the V6 architecture, model and training configuration,
+same-section adjacent sampling metadata, and state dictionary. It always
+reports the SHA-256 and compares it when `--expected-sha256` is provided.
 
 The public MoisesDB-only artifact uses Safetensors and does not require pickle
 deserialization. Training-resume checkpoints are not distributed.
@@ -166,13 +170,18 @@ pip install -e ".[train]"
 
 torchrun --nproc_per_node=4 -m relfx.train \
   --audio-dir /path/to/source-a \
-  --audio-dir /path/to/source-b
+  --audio-dir /path/to/source-b \
+  --structure-segments /path/to/segments.json
 ```
+
+The paper recipe uses adjacent, non-overlapping 10-second clips from the same
+verse or chorus. Pass a structural-section manifest directly or set
+`RELFX_STRUCTURE_SEGMENTS`; paper mode does not fall back to random positions.
 
 See [docs/training.md](docs/training.md) for the tested configuration, a
 single-batch validation command, and implementation compatibility notes. See
 [docs/data-format.md](docs/data-format.md) for supported audio layouts and
-optional structural metadata.
+the required structural metadata.
 
 ## Repository structure
 

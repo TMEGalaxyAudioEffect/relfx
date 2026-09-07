@@ -61,6 +61,11 @@ TRAIN_CONFIG = cfg.TRAIN_CONFIG
 MODEL_CONFIG = cfg.MODEL_CONFIG
 LOSS_SWITCHES = cfg.LOSS_SWITCHES
 CROSS_SEGMENT = cfg.CROSS_SEGMENT
+CROSS_SEGMENT_POLICY = cfg.CROSS_SEGMENT_POLICY
+PAPER_RECIPE_VERSION = cfg.PAPER_RECIPE_VERSION
+STRUCTURE_SEGMENT_JSON = cfg.STRUCTURE_SEGMENT_JSON
+DENSITY_FILTER_AUDIO_DIRS = cfg.DENSITY_FILTER_AUDIO_DIRS
+STEM_AUDIO_DIRS = cfg.STEM_AUDIO_DIRS
 DYNAMIC_FX_PROB_CONFIG = cfg.DYNAMIC_FX_PROB_CONFIG
 BIDIRECTIONAL_CONFIG = getattr(cfg, 'BIDIRECTIONAL_CONFIG', {"enabled": False})
 ensure_dirs = cfg.ensure_dirs
@@ -727,7 +732,8 @@ def evaluate_ld_regression(model, criterion, fx_chain, device, triplets_dir, dat
 def save_checkpoint(
     model, optimizer, criterion, epoch, metrics, save_path, switches,
     cross_segment=False, model_config=None, fx_probs=None,
-    bidirectional_config=None,
+    bidirectional_config=None, cross_segment_policy=None,
+    sampling_config=None, training_config=None,
 ):
     """保存 checkpoint"""
     if not is_main_process():
@@ -749,6 +755,14 @@ def save_checkpoint(
         'metrics': metrics,
         'switches': switches,
         'cross_segment': cross_segment,
+        'cross_segment_policy': (
+            cross_segment_policy if cross_segment else None
+        ),
+        'paper_recipe_version': (
+            PAPER_RECIPE_VERSION if cross_segment else None
+        ),
+        'sampling_config': sampling_config,
+        'training_config': training_config,
         'model_config': model_config,
         'bidirectional_config': bidirectional_config,
         'fx_probs': fx_probs,
@@ -768,6 +782,23 @@ def main():
         action="append",
         default=None,
         help="Audio root; repeat for multiple sources. Overrides RELFX_AUDIO_DIRS.",
+    )
+    parser.add_argument(
+        "--structure-segments",
+        default=STRUCTURE_SEGMENT_JSON,
+        help="JSON manifest used for same-section adjacent sampling.",
+    )
+    parser.add_argument(
+        "--density-filter-audio-dir",
+        action="append",
+        default=None,
+        help="Audio root subject to the paper's 70%% content-density filter.",
+    )
+    parser.add_argument(
+        "--stem-audio-dir",
+        action="append",
+        default=None,
+        help="Stem root where positive observations may use the same song.",
     )
 
     # 训练
@@ -933,6 +964,19 @@ def main():
     setup_logging(LOG_DIR, rank=rank)
 
     effective_batch = args.batch_size * world_size * args.grad_accum_steps
+    checkpoint_training_config = {
+        "optimizer": "AdamW",
+        "epochs": args.epochs,
+        "learning_rate": args.lr,
+        "weight_decay": args.weight_decay,
+        "warmup_epochs": args.warmup_epochs,
+        "minimum_learning_rate": 1e-6,
+        "temperature": args.temperature,
+        "batch_size_per_device": args.batch_size,
+        "world_size": world_size,
+        "gradient_accumulation_steps": args.grad_accum_steps,
+        "effective_batch_size": effective_batch,
+    }
 
     logging.info("=" * 70)
     logging.info("Cascaded FX Contrastive Learning V6 — Dual-Branch + DynFxProb")
@@ -944,6 +988,8 @@ def main():
     logging.info(f"LR: {args.lr}, Temperature: {args.temperature}")
     logging.info(f"Warmup epochs: {args.warmup_epochs}")
     logging.info(f"Cross-segment: {'✅ ON' if cross_segment else '❌ OFF'}")
+    if cross_segment:
+        logging.info(f"Cross-segment policy: {CROSS_SEGMENT_POLICY}")
     logging.info("Model: DualBranchFxEncoder")
     logging.info(f"  Variant: {model_config['model_variant']}")
     logging.info(f"  Fusion: {model_config['fusion_type']}")
@@ -990,7 +1036,26 @@ def main():
     logging.info("\nCreating dataloader...")
 
     train_dataset = AudioSegmentDataset(
-        audio_dirs=audio_dirs, cross_segment=cross_segment, split="train"
+        audio_dirs=audio_dirs,
+        cross_segment=cross_segment,
+        cross_segment_policy=CROSS_SEGMENT_POLICY,
+        structure_segment_json=args.structure_segments,
+        density_filter_audio_dirs=(
+            args.density_filter_audio_dir
+            if args.density_filter_audio_dir is not None
+            else DENSITY_FILTER_AUDIO_DIRS
+        ),
+        stem_audio_dirs=(
+            args.stem_audio_dir
+            if args.stem_audio_dir is not None
+            else STEM_AUDIO_DIRS
+        ),
+        split="train",
+    )
+    sampling_config = train_dataset.sampling_metadata()
+    logging.info(
+        "Sampling provenance: "
+        f"{json.dumps(sampling_config, sort_keys=True)}"
     )
 
     hn_enabled = switches.get("hard_negative", False)
@@ -1025,7 +1090,21 @@ def main():
     # 验证集 — 所有 rank 都创建，避免评估时 NCCL 超时
     val_loader = None
     val_dataset = AudioSegmentDataset(
-        audio_dirs=audio_dirs, cross_segment=cross_segment, split="val"
+        audio_dirs=audio_dirs,
+        cross_segment=cross_segment,
+        cross_segment_policy=CROSS_SEGMENT_POLICY,
+        structure_segment_json=args.structure_segments,
+        density_filter_audio_dirs=(
+            args.density_filter_audio_dir
+            if args.density_filter_audio_dir is not None
+            else DENSITY_FILTER_AUDIO_DIRS
+        ),
+        stem_audio_dirs=(
+            args.stem_audio_dir
+            if args.stem_audio_dir is not None
+            else STEM_AUDIO_DIRS
+        ),
+        split="val",
     )
     val_collator = FxContrastiveCollator(
         fx_chain=fx_chain, shuffle_order=False,
@@ -1110,6 +1189,15 @@ def main():
     if args.resume:
         if os.path.isfile(args.resume):
             checkpoint = torch.load(args.resume, map_location=device)
+
+            if cross_segment:
+                saved_policy = checkpoint.get('cross_segment_policy')
+                if saved_policy != CROSS_SEGMENT_POLICY:
+                    raise RuntimeError(
+                        "Refusing to resume a checkpoint with sampling policy "
+                        f"{saved_policy!r}; expected {CROSS_SEGMENT_POLICY!r}. "
+                        "Start paper-aligned training from scratch."
+                    )
 
             model_state = checkpoint['model_state_dict']
             if is_dist():
@@ -1207,6 +1295,9 @@ def main():
                         model_config=model_config,
                         fx_probs=current_fx_probs,
                         bidirectional_config=bidirectional_config,
+                        cross_segment_policy=CROSS_SEGMENT_POLICY,
+                        sampling_config=sampling_config,
+                        training_config=checkpoint_training_config,
                     )
 
         # ===================== Ld 回归评估 (三元组数据) =====================
@@ -1274,6 +1365,9 @@ def main():
                 model_config=model_config,
                 fx_probs=current_fx_probs,
                 bidirectional_config=bidirectional_config,
+                cross_segment_policy=CROSS_SEGMENT_POLICY,
+                sampling_config=sampling_config,
+                training_config=checkpoint_training_config,
             )
 
         if is_dist():
@@ -1288,6 +1382,9 @@ def main():
             model_config=model_config,
             fx_probs=current_fx_probs,
             bidirectional_config=bidirectional_config,
+            cross_segment_policy=CROSS_SEGMENT_POLICY,
+            sampling_config=sampling_config,
+            training_config=checkpoint_training_config,
         )
 
     if is_main_process():
