@@ -49,6 +49,8 @@ The public paper configuration uses:
 
 The complete sanitized configuration is in
 [`configs/paper.yaml`](../configs/paper.yaml).
+New Base checkpoints produced by this corrected recipe are labeled `v6-fix`;
+the model architecture and training objectives otherwise remain V6-compatible.
 
 ## Bidirectional variant
 

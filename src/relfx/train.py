@@ -1,4 +1,4 @@
-"""RelFx training entry point with optional distributed data parallelism.
+"""RelFx V6-fix training entry point with optional distributed data parallelism.
 
 V6 核心改进（对比 V5）:
     ★ 动态 FX 概率调度 (Dynamic FX Probability Scheduling):
@@ -63,6 +63,7 @@ LOSS_SWITCHES = cfg.LOSS_SWITCHES
 CROSS_SEGMENT = cfg.CROSS_SEGMENT
 CROSS_SEGMENT_POLICY = cfg.CROSS_SEGMENT_POLICY
 CROSS_SEGMENT_RECIPE_VERSION = cfg.CROSS_SEGMENT_RECIPE_VERSION
+BASE_CHECKPOINT_VERSION = cfg.BASE_CHECKPOINT_VERSION
 STRUCTURE_SEGMENT_JSON = cfg.STRUCTURE_SEGMENT_JSON
 DYNAMIC_FX_PROB_CONFIG = cfg.DYNAMIC_FX_PROB_CONFIG
 BIDIRECTIONAL_CONFIG = getattr(cfg, 'BIDIRECTIONAL_CONFIG', {"enabled": False})
@@ -743,7 +744,7 @@ def save_checkpoint(
     checkpoint_version = (
         'v8'
         if (model_config or {}).get('model_variant') == 'bidirectional'
-        else 'v6'
+        else BASE_CHECKPOINT_VERSION
     )
     torch.save({
         'epoch': epoch,
@@ -950,7 +951,7 @@ def main():
     effective_batch = args.batch_size * world_size * args.grad_accum_steps
 
     logging.info("=" * 70)
-    logging.info("Cascaded FX Contrastive Learning V6 — Dual-Branch + DynFxProb")
+    logging.info("Cascaded FX Contrastive Learning V6-fix — Dual-Branch + DynFxProb")
     logging.info("=" * 70)
     logging.info(f"Audio dirs: {audio_dirs}")
     logging.info(f"World size: {world_size} GPUs, Device: {device}")
@@ -1183,7 +1184,7 @@ def main():
 
     # ===================== 训练循环 =====================
     logging.info("\n" + "=" * 70)
-    logging.info("Starting V6 training...")
+    logging.info("Starting V6-fix training...")
     logging.info("=" * 70)
 
     best_val_loss = float('inf')
@@ -1343,7 +1344,7 @@ def main():
                 json.dump(history, f, indent=2)
 
         logging.info("\n" + "=" * 70)
-        logging.info("V6 Training completed!")
+        logging.info("V6-fix training completed!")
         logging.info(f"Best val loss: {best_val_loss:.4f}")
         logging.info(f"Model: DualBranchFxEncoder (fusion={model_config['fusion_type']})")
         logging.info(f"Active methods: {cfg.get_active_methods()}")

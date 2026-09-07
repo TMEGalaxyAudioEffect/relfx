@@ -44,6 +44,14 @@ class SafetensorsCheckpointTest(unittest.TestCase):
 
         self.assertEqual(resolve_model_variant(metadata), "base")
 
+    def test_resolves_v6_fix_artifacts_as_base(self):
+        metadata = {
+            "version": "v6-fix",
+            "model_config": {"fusion_type": "diff_gate"},
+        }
+
+        self.assertEqual(resolve_model_variant(metadata), "base")
+
     def test_resolves_original_v8_artifacts_as_bidirectional(self):
         metadata = {"version": "v8", "model_config": {"fusion_type": "diff_gate"}}
 

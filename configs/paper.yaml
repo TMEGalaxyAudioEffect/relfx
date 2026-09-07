@@ -9,6 +9,7 @@ frontend:
   fmin: 50
   fmax: 18000
 model:
+  checkpoint_version: v6-fix
   model_variant: base
   fusion_dimension: 2048
   projected_dimension: 128

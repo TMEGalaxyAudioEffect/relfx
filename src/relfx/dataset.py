@@ -198,7 +198,7 @@ class AudioSegmentDataset(Dataset):
             else "same_segment (V2)"
         )
         split_str = f"split={split}" if split else "no split"
-        print(f"[Dataset V6] {len(self.audio_files)} files ({split_str}) from {len(dirs_to_scan)} sources | mode: {mode_str}")
+        print(f"[Dataset V6-fix] {len(self.audio_files)} files ({split_str}) from {len(dirs_to_scan)} sources | mode: {mode_str}")
 
     @staticmethod
     def _sha256_file(path):

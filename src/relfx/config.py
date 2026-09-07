@@ -31,6 +31,7 @@ DENSITY_FILTER_AUDIO_DIRS = set(_path_list("RELFX_DENSITY_FILTER_AUDIO_DIRS"))
 VALID_STRUCTURE_LABELS = {"verse", "chorus"}
 CROSS_SEGMENT_POLICY = "same_section_adjacent"
 CROSS_SEGMENT_RECIPE_VERSION = "same-section-adjacent-v1"
+BASE_CHECKPOINT_VERSION = "v6-fix"
 
 # Outputs
 CHECKPOINT_DIR = os.environ.get(

@@ -13,6 +13,7 @@ from relfx.checkpoint import load_safetensors_artifact
 
 EXPECTED_RECIPE_VERSION = "same-section-adjacent-v1"
 EXPECTED_CROSS_SEGMENT_POLICY = "same_section_adjacent"
+EXPECTED_CHECKPOINT_VERSION = "v6-fix"
 EXPECTED_MODEL_CONFIG = {
     "model_variant": "base",
     "fusion_type": "diff_gate",
@@ -75,7 +76,7 @@ def main() -> None:
         ),
         "training_data": metadata.get("training_data")
         == args.expected_training_data,
-        "version": metadata.get("version") == "v6",
+        "version": metadata.get("version") == EXPECTED_CHECKPOINT_VERSION,
         "cross_segment": metadata.get("cross_segment") is True,
         "cross_segment_recipe_version": metadata.get(
             "cross_segment_recipe_version"

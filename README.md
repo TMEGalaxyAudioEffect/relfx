@@ -77,9 +77,12 @@ export RELFX_CHECKPOINT_PATH="$RELFX_WEIGHTS_DIR/model.safetensors"
 python scripts/verify_checkpoint.py "$RELFX_CHECKPOINT_PATH"
 ```
 
-The verifier checks the V6 architecture, model configuration, same-section
-adjacent sampling metadata, and state dictionary. It always reports the
-SHA-256 and compares it when `--expected-sha256` is provided.
+The verifier checks the V6-fix checkpoint version, Base model configuration,
+same-section adjacent sampling metadata, and state dictionary. It always
+reports the SHA-256 and compares it when `--expected-sha256` is provided.
+
+Legacy V6 artifacts remain loadable for inference, but only newly trained
+V6-fix artifacts pass the release verifier.
 
 The public MoisesDB-only artifact uses Safetensors and does not require pickle
 deserialization. Training-resume checkpoints are not distributed.

@@ -10,6 +10,7 @@ class ReleaseConfigTest(unittest.TestCase):
         self.assertIsNone(config.STRUCTURE_SEGMENT_JSON)
         self.assertEqual(config.TRAIN_CONFIG["lr"], 3e-4)
         self.assertEqual(config.TRAIN_CONFIG["epochs"], 200)
+        self.assertEqual(config.BASE_CHECKPOINT_VERSION, "v6-fix")
         self.assertEqual(
             config.CROSS_SEGMENT_POLICY, "same_section_adjacent"
         )
