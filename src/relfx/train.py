@@ -62,10 +62,8 @@ MODEL_CONFIG = cfg.MODEL_CONFIG
 LOSS_SWITCHES = cfg.LOSS_SWITCHES
 CROSS_SEGMENT = cfg.CROSS_SEGMENT
 CROSS_SEGMENT_POLICY = cfg.CROSS_SEGMENT_POLICY
-PAPER_RECIPE_VERSION = cfg.PAPER_RECIPE_VERSION
+CROSS_SEGMENT_RECIPE_VERSION = cfg.CROSS_SEGMENT_RECIPE_VERSION
 STRUCTURE_SEGMENT_JSON = cfg.STRUCTURE_SEGMENT_JSON
-DENSITY_FILTER_AUDIO_DIRS = cfg.DENSITY_FILTER_AUDIO_DIRS
-STEM_AUDIO_DIRS = cfg.STEM_AUDIO_DIRS
 DYNAMIC_FX_PROB_CONFIG = cfg.DYNAMIC_FX_PROB_CONFIG
 BIDIRECTIONAL_CONFIG = getattr(cfg, 'BIDIRECTIONAL_CONFIG', {"enabled": False})
 ensure_dirs = cfg.ensure_dirs
@@ -733,7 +731,7 @@ def save_checkpoint(
     model, optimizer, criterion, epoch, metrics, save_path, switches,
     cross_segment=False, model_config=None, fx_probs=None,
     bidirectional_config=None, cross_segment_policy=None,
-    sampling_config=None, training_config=None,
+    sampling_config=None,
 ):
     """保存 checkpoint"""
     if not is_main_process():
@@ -758,11 +756,10 @@ def save_checkpoint(
         'cross_segment_policy': (
             cross_segment_policy if cross_segment else None
         ),
-        'paper_recipe_version': (
-            PAPER_RECIPE_VERSION if cross_segment else None
+        'cross_segment_recipe_version': (
+            CROSS_SEGMENT_RECIPE_VERSION if cross_segment else None
         ),
         'sampling_config': sampling_config,
-        'training_config': training_config,
         'model_config': model_config,
         'bidirectional_config': bidirectional_config,
         'fx_probs': fx_probs,
@@ -788,19 +785,6 @@ def main():
         default=STRUCTURE_SEGMENT_JSON,
         help="JSON manifest used for same-section adjacent sampling.",
     )
-    parser.add_argument(
-        "--density-filter-audio-dir",
-        action="append",
-        default=None,
-        help="Audio root subject to the paper's 70%% content-density filter.",
-    )
-    parser.add_argument(
-        "--stem-audio-dir",
-        action="append",
-        default=None,
-        help="Stem root where positive observations may use the same song.",
-    )
-
     # 训练
     parser.add_argument("--epochs", type=int, default=TRAIN_CONFIG["epochs"])
     parser.add_argument("--batch-size", type=int, default=TRAIN_CONFIG["batch_size"])
@@ -964,19 +948,6 @@ def main():
     setup_logging(LOG_DIR, rank=rank)
 
     effective_batch = args.batch_size * world_size * args.grad_accum_steps
-    checkpoint_training_config = {
-        "optimizer": "AdamW",
-        "epochs": args.epochs,
-        "learning_rate": args.lr,
-        "weight_decay": args.weight_decay,
-        "warmup_epochs": args.warmup_epochs,
-        "minimum_learning_rate": 1e-6,
-        "temperature": args.temperature,
-        "batch_size_per_device": args.batch_size,
-        "world_size": world_size,
-        "gradient_accumulation_steps": args.grad_accum_steps,
-        "effective_batch_size": effective_batch,
-    }
 
     logging.info("=" * 70)
     logging.info("Cascaded FX Contrastive Learning V6 — Dual-Branch + DynFxProb")
@@ -1040,16 +1011,6 @@ def main():
         cross_segment=cross_segment,
         cross_segment_policy=CROSS_SEGMENT_POLICY,
         structure_segment_json=args.structure_segments,
-        density_filter_audio_dirs=(
-            args.density_filter_audio_dir
-            if args.density_filter_audio_dir is not None
-            else DENSITY_FILTER_AUDIO_DIRS
-        ),
-        stem_audio_dirs=(
-            args.stem_audio_dir
-            if args.stem_audio_dir is not None
-            else STEM_AUDIO_DIRS
-        ),
         split="train",
     )
     sampling_config = train_dataset.sampling_metadata()
@@ -1094,16 +1055,6 @@ def main():
         cross_segment=cross_segment,
         cross_segment_policy=CROSS_SEGMENT_POLICY,
         structure_segment_json=args.structure_segments,
-        density_filter_audio_dirs=(
-            args.density_filter_audio_dir
-            if args.density_filter_audio_dir is not None
-            else DENSITY_FILTER_AUDIO_DIRS
-        ),
-        stem_audio_dirs=(
-            args.stem_audio_dir
-            if args.stem_audio_dir is not None
-            else STEM_AUDIO_DIRS
-        ),
         split="val",
     )
     val_collator = FxContrastiveCollator(
@@ -1297,7 +1248,6 @@ def main():
                         bidirectional_config=bidirectional_config,
                         cross_segment_policy=CROSS_SEGMENT_POLICY,
                         sampling_config=sampling_config,
-                        training_config=checkpoint_training_config,
                     )
 
         # ===================== Ld 回归评估 (三元组数据) =====================
@@ -1367,7 +1317,6 @@ def main():
                 bidirectional_config=bidirectional_config,
                 cross_segment_policy=CROSS_SEGMENT_POLICY,
                 sampling_config=sampling_config,
-                training_config=checkpoint_training_config,
             )
 
         if is_dist():
@@ -1384,7 +1333,6 @@ def main():
             bidirectional_config=bidirectional_config,
             cross_segment_policy=CROSS_SEGMENT_POLICY,
             sampling_config=sampling_config,
-            training_config=checkpoint_training_config,
         )
 
     if is_main_process():

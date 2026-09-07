@@ -54,9 +54,9 @@ CPU inference is supported but is substantially slower.
 
 ### 2. Obtain the checkpoint
 
-> The paper-aligned replacement checkpoint is being prepared. The verifier in
-> this source revision intentionally rejects earlier artifacts that do not
-> record the `same_section_adjacent` sampling policy.
+> A replacement checkpoint using same-section adjacent sampling is being
+> prepared. The verifier in this source revision rejects earlier artifacts
+> that do not record the `same_section_adjacent` sampling policy.
 
 After the replacement is published, download it with the Hugging Face CLI:
 
@@ -77,9 +77,9 @@ export RELFX_CHECKPOINT_PATH="$RELFX_WEIGHTS_DIR/model.safetensors"
 python scripts/verify_checkpoint.py "$RELFX_CHECKPOINT_PATH"
 ```
 
-The verifier checks the V6 architecture, model and training configuration,
-same-section adjacent sampling metadata, and state dictionary. It always
-reports the SHA-256 and compares it when `--expected-sha256` is provided.
+The verifier checks the V6 architecture, model configuration, same-section
+adjacent sampling metadata, and state dictionary. It always reports the
+SHA-256 and compares it when `--expected-sha256` is provided.
 
 The public MoisesDB-only artifact uses Safetensors and does not require pickle
 deserialization. Training-resume checkpoints are not distributed.

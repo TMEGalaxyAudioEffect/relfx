@@ -25,7 +25,6 @@ FX_PROB = cfg.FX_PROB
 
 STRUCTURE_SEGMENT_JSON = getattr(cfg, "STRUCTURE_SEGMENT_JSON", None)
 DENSITY_FILTER_AUDIO_DIRS = getattr(cfg, "DENSITY_FILTER_AUDIO_DIRS", set())
-STEM_AUDIO_DIRS = getattr(cfg, "STEM_AUDIO_DIRS", set())
 VALID_STRUCTURE_LABELS = getattr(
     cfg, "VALID_STRUCTURE_LABELS", {"verse", "chorus"}
 )
@@ -69,7 +68,6 @@ class AudioSegmentDataset(Dataset):
         split_seed: int = 42,
         structure_segment_json: str = STRUCTURE_SEGMENT_JSON,
         density_filter_audio_dirs=None,
-        stem_audio_dirs=None,
         valid_structure_labels=None,
         cross_segment_policy: str = CROSS_SEGMENT_POLICY,
     ):
@@ -78,8 +76,6 @@ class AudioSegmentDataset(Dataset):
         self.sample_rate = sample_rate
         self.cross_segment = cross_segment
         self.cross_segment_policy = cross_segment_policy
-        self.val_ratio = val_ratio
-        self.split_seed = split_seed
         if cross_segment and cross_segment_policy != "same_section_adjacent":
             raise ValueError(
                 "cross_segment requires policy='same_section_adjacent' for "
@@ -100,11 +96,9 @@ class AudioSegmentDataset(Dataset):
             if density_filter_audio_dirs is None
             else density_filter_audio_dirs
         )
-        stem_audio_dirs = STEM_AUDIO_DIRS if stem_audio_dirs is None else stem_audio_dirs
         self.density_filter_audio_dirs = {
             os.path.abspath(d) for d in density_filter_audio_dirs
         }
-        self.stem_audio_dirs = {os.path.abspath(d) for d in stem_audio_dirs}
         valid_structure_labels = (
             VALID_STRUCTURE_LABELS
             if valid_structure_labels is None
@@ -119,14 +113,11 @@ class AudioSegmentDataset(Dataset):
 
         all_files = []
         self._density_filter_files = set()
-        self._stem_files = set()
         for d in self.audio_dirs:
             found = self._scan_audio_files(d)
             print(f"  [Scan] {d}: {len(found)} files")
             if d in self.density_filter_audio_dirs:
                 self._density_filter_files.update(found)
-            if d in self.stem_audio_dirs:
-                self._stem_files.update(found)
             all_files.extend(found)
 
         self._structure_segments = {}
@@ -226,18 +217,11 @@ class AudioSegmentDataset(Dataset):
             ),
             "sample_rate": self.sample_rate,
             "segment_samples": self.segment_samples,
-            "validation_ratio": self.val_ratio,
-            "split_seed": self.split_seed,
             "section_labels": sorted(self.valid_structure_labels),
             "structural_manifest_sha256": self.structure_manifest_sha256,
             "sampler_source_sha256": self._sha256_file(__file__),
             "eligible_files_before_split": self.eligible_files_before_split,
             "selected_files": len(self.audio_files),
-            "density_filtered_files": len(
-                self._density_filter_files.intersection(self.audio_files)
-            ),
-            "stem_files": len(self._stem_files.intersection(self.audio_files)),
-            "minimum_content_ratio": self.MIN_CONTENT_RATIO,
         }
 
     @staticmethod
@@ -601,7 +585,9 @@ class AudioSegmentDataset(Dataset):
 
     def __getitem__(self, idx):
         idx_a = idx % len(self.audio_files)
-        idx_b = self._sample_second_track_index(idx_a)
+        idx_b = random.randint(0, len(self.audio_files) - 1)
+        while idx_b == idx_a and len(self.audio_files) > 1:
+            idx_b = random.randint(0, len(self.audio_files) - 1)
 
         if self.cross_segment:
             audio_a, audio_a_alt = self._load_two_segments_with_fallback(idx_a)
@@ -619,41 +605,6 @@ class AudioSegmentDataset(Dataset):
                 'audio_a': torch.from_numpy(audio_a),
                 'audio_b': torch.from_numpy(audio_b),
             }
-
-    def _sample_second_track_index(self, idx_a):
-        """Sample the second positive observation under the paper protocol."""
-        if len(self.audio_files) < 2:
-            return idx_a
-
-        path_a = self.audio_files[idx_a]
-        song_a = self._extract_song_id(path_a)
-        allow_same_song = path_a in self._stem_files
-
-        for _ in range(32):
-            idx_b = random.randint(0, len(self.audio_files) - 1)
-            if idx_b == idx_a:
-                continue
-            if (
-                not allow_same_song
-                and self._extract_song_id(self.audio_files[idx_b]) == song_a
-            ):
-                continue
-            return idx_b
-
-        candidates = [
-            index
-            for index, path in enumerate(self.audio_files)
-            if index != idx_a
-            and (
-                allow_same_song
-                or self._extract_song_id(path) != song_a
-            )
-        ]
-        if not candidates:
-            raise RuntimeError(
-                "Full-mix positive pairs require audio from two different songs"
-            )
-        return random.choice(candidates)
 
     def _load_segment_with_fallback(self, idx, max_file_retries=3):
         """Load a clip, changing files after repeated density failures."""

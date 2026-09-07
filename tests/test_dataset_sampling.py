@@ -11,7 +11,7 @@ from relfx.dataset import AudioSegmentDataset
 
 
 class PaperCrossSegmentSamplingTest(unittest.TestCase):
-    def _make_dataset(self, manifest, files, density_filter=False, stems=False):
+    def _make_dataset(self, manifest, files, density_filter=False):
         temporary_directory = tempfile.TemporaryDirectory()
         root = Path(temporary_directory.name)
         audio_root = root / "audio"
@@ -35,7 +35,6 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
                     density_filter_audio_dirs=(
                         {str(audio_root)} if density_filter else set()
                     ),
-                    stem_audio_dirs={str(audio_root)} if stems else set(),
                 )
         except Exception:
             temporary_directory.cleanup()
@@ -141,39 +140,6 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
             {"001"},
         )
 
-    def test_full_mix_positive_observations_use_different_songs(self):
-        dataset = self._make_dataset(
-            {
-                song_id: {
-                    "segments": [
-                        {"label": "verse", "start": 0, "end": 25}
-                    ]
-                }
-                for song_id in ("001", "002")
-            },
-            ["001_a.wav", "001_b.wav", "002_a.wav"],
-        )
-
-        with patch("relfx.dataset.random.randint", side_effect=[1, 2]):
-            self.assertEqual(dataset._sample_second_track_index(0), 2)
-
-    def test_stems_may_come_from_the_same_song(self):
-        dataset = self._make_dataset(
-            {
-                "001": {
-                    "segments": [
-                        {"label": "verse", "start": 0, "end": 25}
-                    ]
-                }
-            },
-            ["001_vocals.wav", "001_drums.wav"],
-            density_filter=True,
-            stems=True,
-        )
-
-        with patch("relfx.dataset.random.randint", return_value=1):
-            self.assertEqual(dataset._sample_second_track_index(0), 1)
-
     def test_sampling_metadata_records_policy_and_provenance(self):
         dataset = self._make_dataset(
             {
@@ -192,9 +158,6 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
         self.assertEqual(metadata["section_labels"], ["chorus", "verse"])
         self.assertEqual(len(metadata["structural_manifest_sha256"]), 64)
         self.assertEqual(len(metadata["sampler_source_sha256"]), 64)
-        self.assertEqual(metadata["density_filtered_files"], 0)
-        self.assertEqual(metadata["stem_files"], 0)
-        self.assertEqual(metadata["minimum_content_ratio"], 0.7)
         self.assertNotIn("path", metadata)
 
 

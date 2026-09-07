@@ -8,14 +8,14 @@ class ReleaseConfigTest(unittest.TestCase):
     def test_defaults_contain_no_machine_paths(self):
         self.assertEqual(config.AUDIO_DIRS, [])
         self.assertIsNone(config.STRUCTURE_SEGMENT_JSON)
-        self.assertEqual(config.TRAIN_CONFIG["lr"], 5e-4)
+        self.assertEqual(config.TRAIN_CONFIG["lr"], 3e-4)
         self.assertEqual(config.TRAIN_CONFIG["epochs"], 200)
         self.assertEqual(
             config.CROSS_SEGMENT_POLICY, "same_section_adjacent"
         )
         self.assertEqual(
-            config.PAPER_RECIPE_VERSION,
-            "ismir2026-same-section-adjacent-v1",
+            config.CROSS_SEGMENT_RECIPE_VERSION,
+            "same-section-adjacent-v1",
         )
 
     def test_song_level_split_is_disjoint(self):

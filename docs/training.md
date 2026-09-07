@@ -19,16 +19,13 @@ Pass one or more audio roots with repeated `--audio-dir` arguments:
 torchrun --nproc_per_node=4 -m relfx.train \
   --audio-dir /path/to/source-a \
   --audio-dir /path/to/source-b \
-  --structure-segments /path/to/segments.json \
-  --density-filter-audio-dir /path/to/moisesdb \
-  --stem-audio-dir /path/to/moisesdb
+  --structure-segments /path/to/segments.json
 ```
 
-Alternatively, use `RELFX_AUDIO_DIRS`, `RELFX_STRUCTURE_SEGMENTS`,
-`RELFX_DENSITY_FILTER_AUDIO_DIRS`, and `RELFX_STEM_AUDIO_DIRS`. Variables
-containing multiple paths use the operating system's path separator. The
-loader performs a song-disjoint training/validation split. The default paper
-recipe requires a structural-section manifest:
+Alternatively, use `RELFX_AUDIO_DIRS` and `RELFX_STRUCTURE_SEGMENTS`.
+`RELFX_AUDIO_DIRS` uses the operating system's path separator. The loader
+performs a song-disjoint training/validation split. Cross-segment training
+requires a structural-section manifest:
 
 ```bash
 export RELFX_STRUCTURE_SEGMENTS=/path/to/segments.json
@@ -48,7 +45,7 @@ The public paper configuration uses:
 - a 2048-dimensional fusion representation and 128-dimensional projected
   representation;
 - dynamic per-effect sampling probabilities;
-- AdamW with an initial learning rate of `5e-4`.
+- AdamW with an initial learning rate of `3e-4`.
 
 The complete sanitized configuration is in
 [`configs/paper.yaml`](../configs/paper.yaml).

@@ -26,9 +26,9 @@ bidirectional_model:
   training_flip_ratio: 0.5
   checkpoint_released: false
 training:
-  recipe_version: ismir2026-same-section-adjacent-v1
+  cross_segment_recipe_version: same-section-adjacent-v1
   epochs: 200
-  learning_rate: 0.0005
+  learning_rate: 0.0003
   weight_decay: 0.00001
   temperature: 0.15
   triplet_margin: 0.3
@@ -38,9 +38,6 @@ training:
   cross_segment: true
   cross_segment_policy: same_section_adjacent
   structural_manifest_required: true
-  full_mix_positive_pairing: different_songs
-  stem_positive_pairing: same_song_allowed
-  moisesdb_minimum_content_ratio: 0.7
   shuffle_effect_order: true
   dynamic_effect_probability: true
 ito:

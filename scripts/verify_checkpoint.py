@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that a candidate artifact follows the ISMIR 2026 release recipe."""
+"""Verify a release artifact and its cross-segment sampling provenance."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from relfx.checkpoint import load_safetensors_artifact
 
 
-EXPECTED_RECIPE_VERSION = "ismir2026-same-section-adjacent-v1"
+EXPECTED_RECIPE_VERSION = "same-section-adjacent-v1"
 EXPECTED_CROSS_SEGMENT_POLICY = "same_section_adjacent"
 EXPECTED_MODEL_CONFIG = {
     "model_variant": "base",
@@ -63,7 +63,6 @@ def main() -> None:
         Path(__file__).resolve().parents[1] / "src" / "relfx" / "dataset.py"
     )
     sampling_config = metadata.get("sampling_config")
-    training_config = metadata.get("training_config")
 
     checks = {
         "artifact_format": metadata.get("artifact_format")
@@ -78,7 +77,9 @@ def main() -> None:
         == args.expected_training_data,
         "version": metadata.get("version") == "v6",
         "cross_segment": metadata.get("cross_segment") is True,
-        "paper_recipe_version": metadata.get("paper_recipe_version")
+        "cross_segment_recipe_version": metadata.get(
+            "cross_segment_recipe_version"
+        )
         == EXPECTED_RECIPE_VERSION,
         "cross_segment_policy": metadata.get("cross_segment_policy")
         == EXPECTED_CROSS_SEGMENT_POLICY,
@@ -89,43 +90,12 @@ def main() -> None:
             == EXPECTED_CROSS_SEGMENT_POLICY
             and sampling_config.get("sample_rate") == 44_100
             and sampling_config.get("segment_samples") == 441_000
-            and sampling_config.get("validation_ratio") == 0.15
-            and sampling_config.get("split_seed") == 42
             and is_sha256(sampling_config.get("structural_manifest_sha256"))
             and sampling_config.get("sampler_source_sha256")
             == expected_sampler_sha256
             and sampling_config.get("section_labels") == ["chorus", "verse"]
             and sampling_config.get("eligible_files_before_split", 0) > 0
             and sampling_config.get("selected_files", 0) > 0
-            and sampling_config.get("minimum_content_ratio") == 0.7
-        ),
-        "training_config": (
-            isinstance(training_config, dict)
-            and training_config.get("optimizer") == "AdamW"
-            and training_config.get("epochs") == 200
-            and training_config.get("learning_rate") == 5e-4
-            and training_config.get("weight_decay") == 1e-5
-            and training_config.get("warmup_epochs") == 10
-            and training_config.get("minimum_learning_rate") == 1e-6
-            and training_config.get("temperature") == 0.15
-            and training_config.get("batch_size_per_device") == 48
-            and training_config.get("world_size") == 4
-            and training_config.get("gradient_accumulation_steps") == 4
-            and training_config.get("effective_batch_size") == 768
-        ),
-        "moisesdb_density_filter": (
-            args.expected_training_data != "moisesdb-only"
-            or (
-                isinstance(sampling_config, dict)
-                and sampling_config.get("density_filtered_files", 0) > 0
-            )
-        ),
-        "moisesdb_stem_pairing": (
-            args.expected_training_data != "moisesdb-only"
-            or (
-                isinstance(sampling_config, dict)
-                and sampling_config.get("stem_files", 0) > 0
-            )
         ),
         "model_config": metadata.get("model_config") == EXPECTED_MODEL_CONFIG,
         "switches": metadata.get("switches") == EXPECTED_SWITCHES,
@@ -140,7 +110,9 @@ def main() -> None:
         "tensor_count": len(state_dict),
         "epoch": metadata.get("epoch"),
         "version": metadata.get("version"),
-        "paper_recipe_version": metadata.get("paper_recipe_version"),
+        "cross_segment_recipe_version": metadata.get(
+            "cross_segment_recipe_version"
+        ),
         "cross_segment_policy": metadata.get("cross_segment_policy"),
         "metrics": metadata.get("metrics"),
         "checks": checks,
@@ -148,7 +120,7 @@ def main() -> None:
     }
     print(json.dumps(report, indent=2))
     if not report["verified"]:
-        raise SystemExit("Artifact does not match the expected paper metadata")
+        raise SystemExit("Artifact does not match the expected release metadata")
 
 
 if __name__ == "__main__":

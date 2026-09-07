@@ -45,10 +45,6 @@ the song-level train/validation split. Training stops on missing manifest
 coverage or if no eligible files remain. There is no random-position or
 cross-section fallback in paper mode.
 
-Mark stem collections with `--stem-audio-dir` (or `RELFX_STEM_AUDIO_DIRS`).
-Positive observations from full-mix roots use different songs; observations
-from a stem root may use different stems of the same song.
-
 ## Density filtering
 
 Set `RELFX_DENSITY_FILTER_AUDIO_DIRS` to apply the paper's 70% non-silent-frame
