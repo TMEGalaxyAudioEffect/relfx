@@ -42,13 +42,13 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
         self.addCleanup(temporary_directory.cleanup)
         return dataset
 
-    def test_requires_structural_manifest(self):
+    def test_requires_sampling_manifest(self):
         with patch.object(
             AudioSegmentDataset,
             "_scan_audio_files",
             return_value=["/audio/001_take.wav"],
         ):
-            with self.assertRaisesRegex(RuntimeError, "requires a structural"):
+            with self.assertRaisesRegex(RuntimeError, "requires a sampling"):
                 AudioSegmentDataset(
                     audio_dir="/audio",
                     cross_segment=True,
@@ -122,6 +122,40 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
         self.assertTrue(calls[0][1]["strict_start"])
         self.assertTrue(calls[1][1]["strict_start"])
 
+    def test_full_audio_scope_does_not_require_a_structure_label(self):
+        dataset = self._make_dataset(
+            {
+                "001": {
+                    "sampling_scope": "full_audio",
+                    "segments": [{"start": 0, "end": 25}],
+                }
+            },
+            ["001_take.wav"],
+        )
+
+        self.assertEqual(
+            dataset._structure_segments["001"],
+            [{"start": 0.0, "end": 25.0}],
+        )
+
+    def test_source_relative_keys_disambiguate_duplicate_stems(self):
+        dataset = self._make_dataset(
+            {
+                "audio/a/shared.wav": {
+                    "sampling_scope": "presegmented_audio",
+                    "segments": [{"start": 0, "end": 25}],
+                },
+                "audio/b/shared.wav": {
+                    "sampling_scope": "presegmented_audio",
+                    "segments": [{"start": 0, "end": 25}],
+                },
+            },
+            ["a/shared.wav", "b/shared.wav"],
+        )
+
+        self.assertEqual(len(dataset.audio_files), 2)
+        self.assertEqual(len(set(dataset._file_structure_keys.values())), 2)
+
     def test_song_id_manifest_can_be_shared_by_multiple_stems(self):
         dataset = self._make_dataset(
             {
@@ -156,9 +190,37 @@ class PaperCrossSegmentSamplingTest(unittest.TestCase):
         self.assertEqual(metadata["policy"], "same_section_adjacent")
         self.assertEqual(metadata["segment_samples"], 100)
         self.assertEqual(metadata["section_labels"], ["chorus", "verse"])
+        self.assertEqual(
+            metadata["pairing_scope_counts"], {"structural_section": 1}
+        )
         self.assertEqual(len(metadata["structural_manifest_sha256"]), 64)
         self.assertEqual(len(metadata["sampler_source_sha256"]), 64)
         self.assertNotIn("path", metadata)
+
+    def test_density_filter_retries_until_both_adjacent_clips_pass(self):
+        dataset = self._make_dataset(
+            {
+                "001": {
+                    "sampling_scope": "full_audio",
+                    "segments": [{"start": 0, "end": 25}],
+                }
+            },
+            ["001_take.wav"],
+            density_filter=True,
+        )
+        silent = np.zeros((2, 100), dtype=np.float32)
+        dense = np.ones((2, 100), dtype=np.float32)
+
+        with patch.object(
+            dataset,
+            "_load_two_structured_segments",
+            side_effect=[(silent, silent), (dense, dense)],
+        ) as loader:
+            first, second = dataset._load_two_segments_with_fallback(0)
+
+        self.assertEqual(loader.call_count, 2)
+        self.assertTrue(np.all(first == 1))
+        self.assertTrue(np.all(second == 1))
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ VALID_STRUCTURE_LABELS = getattr(
 CROSS_SEGMENT_POLICY = getattr(
     cfg, "CROSS_SEGMENT_POLICY", "same_section_adjacent"
 )
+PAIRING_SCOPES = {"structural_section", "presegmented_audio", "full_audio"}
 
 
 class AudioSegmentDataset(Dataset):
@@ -110,6 +111,7 @@ class AudioSegmentDataset(Dataset):
         self.valid_structure_labels = valid_structure_labels
         self.structure_manifest_sha256 = None
         self.eligible_files_before_split = 0
+        self._pairing_scope_counts = defaultdict(int)
 
         all_files = []
         self._density_filter_files = set()
@@ -126,13 +128,13 @@ class AudioSegmentDataset(Dataset):
         if cross_segment:
             if not structure_segment_json:
                 raise RuntimeError(
-                    "Paper-aligned cross-segment sampling requires a structural "
-                    "segment manifest. Set RELFX_STRUCTURE_SEGMENTS or pass "
+                    "Paper-aligned cross-segment sampling requires a sampling "
+                    "manifest. Set RELFX_STRUCTURE_SEGMENTS or pass "
                     "structure_segment_json."
                 )
             if not os.path.isfile(structure_segment_json):
                 raise RuntimeError(
-                    f"Structural segment manifest not found: {structure_segment_json}"
+                    f"Sampling manifest not found: {structure_segment_json}"
                 )
 
             self.structure_manifest_sha256 = self._sha256_file(
@@ -161,23 +163,23 @@ class AudioSegmentDataset(Dataset):
                     for path in missing_manifest_files[:3]
                 )
                 raise RuntimeError(
-                    "Structural manifest does not cover "
+                    "Sampling manifest does not cover "
                     f"{len(missing_manifest_files)} audio files "
                     f"(examples: {examples})"
                 )
             skipped = len(all_files) - len(eligible_files)
             if skipped:
                 print(
-                    "  [Structure] Skipped "
-                    f"{skipped} files without an eligible same-section pair"
+                    "  [Sampling] Skipped "
+                    f"{skipped} files without an eligible adjacent pair"
                 )
             all_files = eligible_files
             self.eligible_files_before_split = len(all_files)
         if len(all_files) == 0:
             if cross_segment:
                 raise RuntimeError(
-                    "No audio files have a verse/chorus section long enough "
-                    "for two adjacent clips"
+                    "No audio files have an eligible range long enough for "
+                    "two adjacent clips"
                 )
             raise RuntimeError(f"No audio files found in {dirs_to_scan}")
 
@@ -218,6 +220,7 @@ class AudioSegmentDataset(Dataset):
             "sample_rate": self.sample_rate,
             "segment_samples": self.segment_samples,
             "section_labels": sorted(self.valid_structure_labels),
+            "pairing_scope_counts": dict(self._pairing_scope_counts),
             "structural_manifest_sha256": self.structure_manifest_sha256,
             "sampler_source_sha256": self._sha256_file(__file__),
             "eligible_files_before_split": self.eligible_files_before_split,
@@ -317,20 +320,20 @@ class AudioSegmentDataset(Dataset):
             print(f"  [Scan] Skipped {skipped} short/broken files in {root_dir}")
         return sorted(files)
 
-    # ===================== Optional structural segments =====================
+    # ========================== Sampling ranges =============================
 
     def _load_structure_segments(self, json_path, valid_labels):
         """
-        Load public structural-segment metadata.
+        Load source-aware sampling-range metadata.
 
-        Build a mapping from track/song IDs to sections long enough to hold
-        two adjacent, non-overlapping clips.
+        Only structural_section entries require verse/chorus labels. Other
+        scopes provide unlabeled ranges long enough for adjacent clips.
         """
         import json as _json
         with open(json_path) as f:
             data = _json.load(f)
         if not isinstance(data, dict):
-            raise ValueError("Structural manifest must contain a JSON object")
+            raise ValueError("Sampling manifest must contain a JSON object")
         self._structure_manifest_keys = {str(key) for key in data}
 
         n_tracks = 0
@@ -339,37 +342,63 @@ class AudioSegmentDataset(Dataset):
         for track_id, info in data.items():
             if not isinstance(info, dict):
                 continue
+            scope = str(info.get("sampling_scope", "structural_section"))
+            if scope not in PAIRING_SCOPES:
+                raise ValueError(
+                    f"Unsupported sampling_scope {scope!r} for {track_id}"
+                )
             segs = info.get('segments', [])
             valid = []
             for s in segs:
                 try:
-                    label = str(s['label']).lower()
                     start = float(s['start'])
                     end = float(s['end'])
                 except (KeyError, TypeError, ValueError):
                     continue
+                label = str(s.get('label', '')).lower()
                 if (
-                    label in valid_labels
+                    (scope != "structural_section" or label in valid_labels)
                     and start >= 0
                     and end - start >= pair_duration
                 ):
-                    valid.append({"label": label, "start": start, "end": end})
+                    segment = {"start": start, "end": end}
+                    if scope == "structural_section":
+                        segment["label"] = label
+                    valid.append(segment)
             if valid:
                 self._structure_segments[str(track_id)] = valid
+                self._pairing_scope_counts[scope] += 1
                 n_tracks += 1
                 n_segments += len(valid)
 
         print(
-            "  [Structure] Loaded segment info: "
+            "  [Sampling] Loaded range info: "
             f"{n_tracks} tracks with {n_segments} eligible segments"
         )
 
-    @classmethod
-    def _structure_key_candidates(cls, filepath):
+    def _structure_key_candidates(self, filepath):
         """Return manifest keys supported for a file, most specific first."""
+        source_relative_key = None
+        absolute_path = os.path.abspath(filepath)
+        for audio_root in self.audio_dirs:
+            try:
+                if os.path.commonpath((absolute_path, audio_root)) != audio_root:
+                    continue
+            except ValueError:
+                continue
+            relative_path = os.path.relpath(absolute_path, audio_root)
+            source_relative_key = (
+                f"{os.path.basename(os.path.normpath(audio_root))}/"
+                f"{Path(relative_path).as_posix()}"
+            )
+            break
         stem = os.path.basename(filepath).rsplit('.', 1)[0]
-        song_id = cls._extract_song_id(filepath)
-        return list(dict.fromkeys((stem, song_id)))
+        song_id = self._extract_song_id(filepath)
+        return list(
+            dict.fromkeys(
+                key for key in (source_relative_key, stem, song_id) if key
+            )
+        )
 
     def _resolve_structure_key(self, filepath):
         for key in self._structure_key_candidates(filepath):
@@ -379,7 +408,7 @@ class AudioSegmentDataset(Dataset):
 
     def _load_two_structured_segments(self, filepath):
         """
-        Load two adjacent, non-overlapping clips from one structural section.
+        Load two adjacent, non-overlapping clips from one declared range.
 
         Returns:
             seg1, seg2: (2, segment_samples) numpy arrays
@@ -388,7 +417,7 @@ class AudioSegmentDataset(Dataset):
         sections = self._structure_segments.get(structure_key, [])
         if not sections:
             raise RuntimeError(
-                f"No eligible structural section for cross-segment pair: {filepath}"
+                f"No eligible sampling range for cross-segment pair: {filepath}"
             )
 
         try:
@@ -622,16 +651,20 @@ class AudioSegmentDataset(Dataset):
             idx = random.randint(0, len(self.audio_files) - 1)
         return audio  # 多次换文件仍不满足，用最后一个
 
-    def _load_two_segments_with_fallback(self, idx, max_file_retries=3):
+    def _load_two_segments_with_fallback(self, idx, max_file_retries=32):
         """Load a strict same-section adjacent pair with density filtering."""
         last_error = None
-        for _ in range(max_file_retries):
-            filepath = self.audio_files[idx]
+        last_path = None
+        last_ratios = None
+        retry_indices = list(range(len(self.audio_files)))
+        for attempt in range(max_file_retries):
+            current_idx = idx if attempt == 0 else random.choice(retry_indices)
+            filepath = self.audio_files[current_idx]
+            last_path = filepath
             try:
                 seg1, seg2 = self._load_two_structured_segments(filepath)
             except RuntimeError as error:
                 last_error = error
-                idx = random.randint(0, len(self.audio_files) - 1)
                 continue
             if filepath not in self._density_filter_files:
                 return seg1, seg2
@@ -642,12 +675,13 @@ class AudioSegmentDataset(Dataset):
             r2 = self._compute_content_ratio(
                 seg2, self.sample_rate, self.CONTENT_HOP, self.SILENCE_RMS_THRESHOLD
             )
+            last_ratios = (r1, r2)
             if r1 >= self.MIN_CONTENT_RATIO and r2 >= self.MIN_CONTENT_RATIO:
                 return seg1, seg2
-            idx = random.randint(0, len(self.audio_files) - 1)
         raise RuntimeError(
-            "Could not sample a same-section adjacent pair satisfying the "
-            "configured content-density threshold"
+            "Could not sample an adjacent pair satisfying the "
+            f"configured content-density threshold after {max_file_retries} "
+            f"attempts (last_path={last_path}, last_ratios={last_ratios})"
         ) from last_error
 
 

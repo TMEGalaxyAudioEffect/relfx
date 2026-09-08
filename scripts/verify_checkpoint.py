@@ -28,6 +28,9 @@ EXPECTED_SWITCHES = {
     "distance_margin": False,
     "hard_negative": False,
 }
+EXPECTED_PAIRING_SCOPES = {
+    "structural_section", "presegmented_audio", "full_audio"
+}
 
 
 def sha256(path: Path) -> str:
@@ -95,6 +98,14 @@ def main() -> None:
             and sampling_config.get("sampler_source_sha256")
             == expected_sampler_sha256
             and sampling_config.get("section_labels") == ["chorus", "verse"]
+            and isinstance(sampling_config.get("pairing_scope_counts"), dict)
+            and bool(sampling_config["pairing_scope_counts"])
+            and set(sampling_config["pairing_scope_counts"])
+            <= EXPECTED_PAIRING_SCOPES
+            and all(
+                isinstance(count, int) and count > 0
+                for count in sampling_config["pairing_scope_counts"].values()
+            )
             and sampling_config.get("eligible_files_before_split", 0) > 0
             and sampling_config.get("selected_files", 0) > 0
         ),

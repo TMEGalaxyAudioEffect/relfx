@@ -19,27 +19,29 @@ Pass one or more audio roots with repeated `--audio-dir` arguments:
 torchrun --nproc_per_node=4 -m relfx.train \
   --audio-dir /path/to/source-a \
   --audio-dir /path/to/source-b \
-  --structure-segments /path/to/segments.json
+  --structure-segments /path/to/segments.json \
+  --density-filter-audio-dir /path/to/moisesdb
 ```
 
 Alternatively, use `RELFX_AUDIO_DIRS` and `RELFX_STRUCTURE_SEGMENTS`.
 `RELFX_AUDIO_DIRS` uses the operating system's path separator. The loader
 performs a song-disjoint training/validation split. Cross-segment training
-requires a structural-section manifest:
+requires a sampling manifest:
 
 ```bash
 export RELFX_STRUCTURE_SEGMENTS=/path/to/segments.json
 ```
 
-See [data-format.md](data-format.md) for the manifest schema and filename/song
-ID conventions.
+See [data-format.md](data-format.md) for structural, pre-segmented, and
+unannotated full-audio scopes and their key conventions.
 
 ## Paper configuration
 
 The public paper configuration uses:
 
 - 44.1 kHz stereo, 10-second clips;
-- adjacent, non-overlapping clip pairs sampled within one verse or chorus;
+- adjacent, non-overlapping clip pairs sampled within each source's declared
+  range; only structurally annotated sources require verse/chorus labels;
 - an eight-processor, 72-parameter differentiable training chain;
 - dual shared CNN branches with cross-attention at stages 3 and 5;
 - a 2048-dimensional fusion representation and 128-dimensional projected

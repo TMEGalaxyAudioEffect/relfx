@@ -65,6 +65,7 @@ CROSS_SEGMENT_POLICY = cfg.CROSS_SEGMENT_POLICY
 CROSS_SEGMENT_RECIPE_VERSION = cfg.CROSS_SEGMENT_RECIPE_VERSION
 BASE_CHECKPOINT_VERSION = cfg.BASE_CHECKPOINT_VERSION
 STRUCTURE_SEGMENT_JSON = cfg.STRUCTURE_SEGMENT_JSON
+DENSITY_FILTER_AUDIO_DIRS = cfg.DENSITY_FILTER_AUDIO_DIRS
 DYNAMIC_FX_PROB_CONFIG = cfg.DYNAMIC_FX_PROB_CONFIG
 BIDIRECTIONAL_CONFIG = getattr(cfg, 'BIDIRECTIONAL_CONFIG', {"enabled": False})
 ensure_dirs = cfg.ensure_dirs
@@ -784,7 +785,16 @@ def main():
     parser.add_argument(
         "--structure-segments",
         default=STRUCTURE_SEGMENT_JSON,
-        help="JSON manifest used for same-section adjacent sampling.",
+        help="JSON manifest defining ranges for adjacent-pair sampling.",
+    )
+    parser.add_argument(
+        "--density-filter-audio-dir",
+        action="append",
+        default=None,
+        help=(
+            "Audio root requiring the 70%% non-silent filter; repeat for "
+            "multiple roots. Overrides RELFX_DENSITY_FILTER_AUDIO_DIRS."
+        ),
     )
     # 训练
     parser.add_argument("--epochs", type=int, default=TRAIN_CONFIG["epochs"])
@@ -894,6 +904,11 @@ def main():
     if args.model_variant == "bidirectional" and args.fusion_type != "diff_gate":
         parser.error("--model-variant bidirectional requires --fusion-type diff_gate")
     audio_dirs = args.audio_dir or cfg.AUDIO_DIRS
+    density_filter_audio_dirs = (
+        set(args.density_filter_audio_dir)
+        if args.density_filter_audio_dir is not None
+        else DENSITY_FILTER_AUDIO_DIRS
+    )
     if not audio_dirs:
         parser.error(
             "provide at least one --audio-dir or set RELFX_AUDIO_DIRS"
@@ -1012,6 +1027,7 @@ def main():
         cross_segment=cross_segment,
         cross_segment_policy=CROSS_SEGMENT_POLICY,
         structure_segment_json=args.structure_segments,
+        density_filter_audio_dirs=density_filter_audio_dirs,
         split="train",
     )
     sampling_config = train_dataset.sampling_metadata()
@@ -1056,6 +1072,7 @@ def main():
         cross_segment=cross_segment,
         cross_segment_policy=CROSS_SEGMENT_POLICY,
         structure_segment_json=args.structure_segments,
+        density_filter_audio_dirs=density_filter_audio_dirs,
         split="val",
     )
     val_collator = FxContrastiveCollator(

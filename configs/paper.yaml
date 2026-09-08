@@ -38,7 +38,9 @@ training:
   activation_prediction_weight: 0.3
   cross_segment: true
   cross_segment_policy: same_section_adjacent
-  structural_manifest_required: true
+  sampling_manifest_required: true
+  sampling_scopes: [structural_section, presegmented_audio, full_audio]
+  density_filter_non_silent_ratio: 0.7
   shuffle_effect_order: true
   dynamic_effect_probability: true
 ito:

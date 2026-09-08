@@ -174,17 +174,20 @@ pip install -e ".[train]"
 torchrun --nproc_per_node=4 -m relfx.train \
   --audio-dir /path/to/source-a \
   --audio-dir /path/to/source-b \
-  --structure-segments /path/to/segments.json
+  --structure-segments /path/to/segments.json \
+  --density-filter-audio-dir /path/to/moisesdb
 ```
 
-The paper recipe uses adjacent, non-overlapping 10-second clips from the same
-verse or chorus. Pass a structural-section manifest directly or set
-`RELFX_STRUCTURE_SEGMENTS`; paper mode does not fall back to random positions.
+The paper recipe uses adjacent, non-overlapping 10-second clips. Structured
+full mixes use verse/chorus boundaries, pre-segmented files use their complete
+section, and unannotated stems use their complete audio range without a
+synthetic structure label. Pass the sampling manifest directly or set
+`RELFX_STRUCTURE_SEGMENTS`.
 
 See [docs/training.md](docs/training.md) for the tested configuration, a
 single-batch validation command, and implementation compatibility notes. See
 [docs/data-format.md](docs/data-format.md) for supported audio layouts and
-the required structural metadata.
+the required sampling manifest.
 
 ## Repository structure
 

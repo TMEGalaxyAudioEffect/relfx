@@ -24,8 +24,8 @@ def _path_list(name: str) -> list[str]:
 AUDIO_DIRS = _path_list("RELFX_AUDIO_DIRS")
 AUDIO_DIR = AUDIO_DIRS[0] if AUDIO_DIRS else ""
 
-# JSON mapping track or song IDs to structural sections. It is required when
-# the paper's cross-segment recipe is enabled; see docs/data-format.md.
+# JSON mapping audio files to structural, pre-segmented, or full-audio ranges.
+# It is required when the paper's adjacent-pair recipe is enabled.
 STRUCTURE_SEGMENT_JSON = os.environ.get("RELFX_STRUCTURE_SEGMENTS")
 DENSITY_FILTER_AUDIO_DIRS = set(_path_list("RELFX_DENSITY_FILTER_AUDIO_DIRS"))
 VALID_STRUCTURE_LABELS = {"verse", "chorus"}
