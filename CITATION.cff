@@ -1,8 +1,8 @@
 cff-version: 1.2.0
-message: "Please cite the ISMIR 2026 RelFx paper when using this code."
+message: "Please cite the RelFx paper when using this code."
 title: "RelFx: Relative Audio Effects Representations"
 type: software
-version: 0.1.0-rc1
+version: 0.1.0-rc2
 date-released: 2026-07-23
 authors:
   - family-names: "Liu"
@@ -17,7 +17,7 @@ repository-code: "https://github.com/TMEGalaxyAudioEffect/relfx"
 url: "https://relative-fx.github.io/"
 license: "MIT"
 preferred-citation:
-  type: conference-paper
+  type: article
   title: "Beyond Dry References: Learning Relative Audio Effects Representations via Contrastive Distance Learning"
   authors:
     - family-names: "Liu"
@@ -28,6 +28,11 @@ preferred-citation:
       given-names: "Weixing"
     - family-names: "Yan"
       given-names: "Zhenhai"
-  collection-title: "Proceedings of the 27th International Society for Music Information Retrieval Conference (ISMIR)"
+  journal: "arXiv"
   year: 2026
+  doi: "10.48550/arXiv.2608.10573"
+  identifiers:
+    - type: other
+      value: "arXiv:2608.10573"
+      description: "arXiv preprint identifier"
   url: "https://arxiv.org/abs/2608.10573"

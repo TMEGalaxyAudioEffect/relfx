@@ -223,14 +223,14 @@ their MIT notice; see [LICENSE](LICENSE) and
 If you use RelFx in your research, please cite:
 
 ```bibtex
-@inproceedings{liu2026beyond,
-  title     = {Beyond Dry References: Learning Relative Audio Effects
-               Representations via Contrastive Distance Learning},
-  author    = {Liu, Xinlu and Lin, Huibin and Wei, Weixing and Yan, Zhenhai},
-  booktitle = {Proceedings of the 27th International Society for Music
-               Information Retrieval Conference (ISMIR)},
-  year      = {2026}
+@misc{liu2026beyond,
+  title         = {Beyond Dry References: Learning Relative Audio Effects
+                   Representations via Contrastive Distance Learning},
+  author        = {Liu, Xinlu and Lin, Huibin and Wei, Weixing and Yan, Zhenhai},
+  year          = {2026},
+  eprint        = {2608.10573},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.SD},
+  doi           = {10.48550/arXiv.2608.10573}
 }
 ```
-
-The DOI and page range will be added after the proceedings entry is available.
