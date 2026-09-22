@@ -15,6 +15,8 @@ from safetensors.torch import load_file, save_file
 
 METADATA_KEY = "relfx_metadata"
 ARTIFACT_FORMAT = "relfx-safetensors-v1"
+SAME_SECTION_RELEASE_RECIPE = "same-section-adjacent-v1"
+EXPECTED_SOURCE_RECIPE = "ismir2026-camera-ready-v1"
 
 
 def sha256(path: Path) -> str:
@@ -39,7 +41,79 @@ def parse_args() -> argparse.Namespace:
         choices=("full-data", "moisesdb-only"),
         help="Record the training-data scope in the artifact metadata.",
     )
+    parser.add_argument(
+        "--release-recipe",
+        choices=(SAME_SECTION_RELEASE_RECIPE,),
+        help="Validate and normalize metadata for a named release recipe.",
+    )
     return parser.parse_args()
+
+
+def apply_release_recipe(
+    metadata: dict, *, recipe: str | None, training_data: str | None
+) -> dict:
+    """Validate source provenance and add release-facing metadata."""
+    if recipe is None:
+        return metadata
+    if recipe != SAME_SECTION_RELEASE_RECIPE:
+        raise ValueError(f"Unsupported release recipe: {recipe}")
+    if training_data != "moisesdb-only":
+        raise ValueError(
+            f"{recipe} currently supports only the MoisesDB-only release"
+        )
+    if metadata.get("version") != "v6":
+        raise ValueError("Expected a source checkpoint with version='v6'")
+    if metadata.get("cross_segment") is not True:
+        raise ValueError("Source checkpoint did not enable cross-segment pairs")
+    if metadata.get("cross_segment_policy") != "same_section_adjacent":
+        raise ValueError(
+            "Source checkpoint does not record same-section adjacent sampling"
+        )
+
+    source_recipe = metadata.get("cross_segment_recipe_version")
+    if source_recipe != EXPECTED_SOURCE_RECIPE:
+        raise ValueError(
+            "Unexpected source recipe version: "
+            f"{source_recipe!r} (expected {EXPECTED_SOURCE_RECIPE!r})"
+        )
+
+    sampling = metadata.get("sampling_config")
+    if not isinstance(sampling, dict):
+        raise ValueError("Source checkpoint has no sampling_config")
+    source_scope_counts = sampling.get("pairing_scope_counts")
+    if not isinstance(source_scope_counts, dict):
+        raise ValueError("Source checkpoint has no pairing scope counts")
+    moises_count = source_scope_counts.get("moises_adjacent_within_stem")
+    if moises_count != sampling.get("eligible_files_before_split"):
+        raise ValueError(
+            "MoisesDB pairing count does not match eligible file count"
+        )
+
+    normalized = dict(metadata)
+    normalized["source_checkpoint_version"] = metadata["version"]
+    normalized["version"] = "v6-fix"
+    normalized["source_cross_segment_recipe_version"] = source_recipe
+    normalized["cross_segment_recipe_version"] = recipe
+
+    model_config = dict(metadata.get("model_config", {}))
+    model_variant = model_config.get("model_variant")
+    if model_variant not in (None, "base"):
+        raise ValueError(f"Expected Base model, found {model_variant!r}")
+    model_config["model_variant"] = "base"
+    normalized["model_config"] = model_config
+
+    normalized_sampling = dict(sampling)
+    normalized_sampling["source_manifest_pairing_scope_counts"] = dict(
+        source_scope_counts
+    )
+    normalized_sampling["source_section_labels"] = list(
+        sampling.get("section_labels", [])
+    )
+    normalized_sampling["pairing_scope_counts"] = {"full_audio": moises_count}
+    normalized_sampling["section_labels"] = []
+    normalized_sampling["dataset"] = "MoisesDB"
+    normalized["sampling_config"] = normalized_sampling
+    return normalized
 
 
 def main() -> None:
@@ -76,6 +150,14 @@ def main() -> None:
     metadata["source_artifact_sha256"] = sha256(source)
     if args.training_data is not None:
         metadata["training_data"] = args.training_data
+    try:
+        metadata = apply_release_recipe(
+            metadata,
+            recipe=args.release_recipe,
+            training_data=args.training_data,
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     encoded_metadata = json.dumps(
         metadata, allow_nan=False, separators=(",", ":"), sort_keys=True
     )

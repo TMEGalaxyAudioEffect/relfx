@@ -1,0 +1,34 @@
+artifact:
+  release_version: v6-fix
+  source_checkpoint_version: v6
+  training_data: moisesdb-only
+  model_variant: base
+  best_epoch: 339
+data:
+  dataset: MoisesDB
+  eligible_stems: 2585
+  training_stems: 2231
+  pairing_scope: full_audio
+  pairing_policy: same_section_adjacent
+training:
+  configured_epochs: 400
+  world_size: 2
+  batch_size_per_gpu: 40
+  gradient_accumulation_steps: 4
+  effective_batch_size: 320
+  learning_rate: 0.0003
+  weight_decay: 0.00001
+validation:
+  loss: 1.428675040602684
+  r_at_1: 0.7593749761581421
+  r_at_5: 0.9281250238418579
+  r_at_10: 0.971875011920929
+  mean_rank: 2.075000047683716
+  median_rank: 1.0
+ito_self_ref:
+  metric: median multi-resolution STFT loss
+  drums: 1.5402
+  bass: 1.3290
+  vocals: 1.4625
+  other: 1.4852
+  average: 1.4542

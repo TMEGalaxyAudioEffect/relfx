@@ -54,11 +54,12 @@ CPU inference is supported but is substantially slower.
 
 ### 2. Obtain the checkpoint
 
-> A replacement checkpoint using same-section adjacent sampling is being
-> prepared. The verifier in this source revision rejects earlier artifacts
-> that do not record the `same_section_adjacent` sampling policy.
+The current checkpoint was retrained on MoisesDB using the adjacent-pair
+sampling described in the paper. It obtains an average median $L_d$ of 1.454
+under the four-instrument Self-ref evaluation, closely matching the 1.449
+reported in Table 2.
 
-After the replacement is published, download it with the Hugging Face CLI:
+Download it with the Hugging Face CLI:
 
 ```bash
 pip install -U huggingface_hub
@@ -77,9 +78,11 @@ export RELFX_CHECKPOINT_PATH="$RELFX_WEIGHTS_DIR/model.safetensors"
 python scripts/verify_checkpoint.py "$RELFX_CHECKPOINT_PATH"
 ```
 
-The verifier checks the V6-fix checkpoint version, Base model configuration,
-same-section adjacent sampling metadata, and state dictionary. It always
-reports the SHA-256 and compares it when `--expected-sha256` is provided.
+The verifier checks the V6-fix release version, epoch 339, Base model
+configuration, same-section adjacent sampling provenance, and state
+dictionary. It always reports the SHA-256 and verifies it against the current
+public release by default; use `--expected-sha256` to supply another expected
+hash.
 
 Legacy V6 artifacts remain loadable for inference, but only newly trained
 V6-fix artifacts pass the release verifier.
@@ -195,7 +198,7 @@ the required sampling manifest.
 .
 ├── src/relfx/                 # model, training, data, effects, and ITO code
 ├── scripts/                   # embedding, validation, and release utilities
-├── configs/paper.yaml         # sanitized paper configuration
+├── configs/                   # paper and released-checkpoint configurations
 ├── docs/                      # training and data-format documentation
 ├── tests/                     # focused release tests
 ├── pyproject.toml             # package metadata and dependency groups
